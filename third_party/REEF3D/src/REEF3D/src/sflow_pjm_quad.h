@@ -1,0 +1,81 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2008-2026 Hans Bihs
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Hans Bihs
+--------------------------------------------------------------------*/
+
+#ifndef SFLOW_PJM_QUAD_H_
+#define SFLOW_PJM_QUAD_H_
+
+#include"sflow_pressure.h"
+#include"increment.h"
+#include"slice1.h"
+#include"slice2.h"
+#include"slice4.h"
+
+class sflow_weno_hj;
+class sflow_gradient_weno;
+
+using namespace std;
+
+class sflow_pjm_quad final : public sflow_pressure, public increment
+{
+public:
+    sflow_pjm_quad(lexer*, fdm2D*,patchBC_interface*);
+	virtual ~sflow_pjm_quad();
+    
+	void start(lexer*, fdm2D*, ghostcell*, solver2D*, ioflow*, slice&, slice&, slice&, slice&, slice&, slice&, double) override final;
+	void upgrad(lexer*, fdm2D*, slice&, slice&) override final;
+	void vpgrad(lexer*, fdm2D*, slice&, slice&) override final;
+    void wpgrad(lexer*, fdm2D*, slice&, slice&) override final;
+    
+    void ucorr(lexer*,fdm2D*,slice&,slice&,double) override final;
+	void vcorr(lexer*,fdm2D*,slice&,slice&,double) override final;
+	void wcorr(lexer*,fdm2D*,double,slice&,slice&,slice&) override final;
+    void wcalc(lexer*,fdm2D*,double,slice&,slice&,slice&) override final;
+    
+    void rhs(lexer*, fdm2D*, slice&, slice&, slice&, double);
+    
+    void poisson(lexer*,fdm2D*,double);
+    
+private:
+    void quad_prep(lexer*,fdm2D*,ghostcell*,slice&,slice&,slice&,double);
+    void quad_calc(lexer*,fdm2D*,slice&,slice&,slice&,slice&,double);
+    
+    
+	double starttime,endtime;
+    int count, gcval_press;
+	int gcval_u, gcval_v, gcval_w;
+    
+    double sqd;
+	double theta;
+	double solvtime,ptime;
+    double wd_criterion;
+    
+    slice4 phi4,press_n;
+	sflow_weno_hj *disc;
+    sflow_gradient_weno *pgrad;
+    patchBC_interface *pBC;
+    
+    slice1 Ps;
+    slice2 Qs;
+
+};
+
+#endif

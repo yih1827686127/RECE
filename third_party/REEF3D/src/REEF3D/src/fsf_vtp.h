@@ -1,0 +1,73 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2008-2026 Hans Bihs
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Hans Bihs
+--------------------------------------------------------------------*/
+
+#ifndef FSF_VTP_H_
+#define FSF_VTP_H_
+
+#include"increment.h"
+#include"fieldint5.h"
+#include"field5.h"
+#include"vtp3D.h"
+
+class lexer;
+class fdm;
+class ghostcell;
+
+using namespace std;
+
+class fsf_vtp : public increment, private vtp3D
+{
+
+public:
+    fsf_vtp(lexer*,fdm*,ghostcell*);
+    virtual ~fsf_vtp();
+    void start(lexer*,fdm*,ghostcell*);
+
+private:
+    void triangulation(lexer*, fdm*, ghostcell*, field&);
+    void reconstruct(lexer*, fdm*, field&);
+    void addpoint(lexer*,fdm*,int,int);
+    void finalize(lexer*,fdm*);
+
+    int **tri, **facet, *confac, *numfac,*numpt;
+    double **ccpt, **pt, *ls;
+    double   dV1,dV2,C1,C2,mi;
+    int numtri,numvert, numtri_mem, numvert_mem;
+    int count,countM,n,nn,q;
+    int ccptcount,facount,check;
+    int polygon_sum,polygon_num,vertice_num;
+    const double zero,interfac;
+    double epsi;
+
+    fieldint5 vertice, nodeflag;
+    field5 eta;
+
+    void print(lexer*,fdm*);
+    void pvtp(lexer*,int);
+
+    char name[100];
+    int offset[100];
+
+    int fsfprintcount;
+};
+
+#endif

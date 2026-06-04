@@ -1,0 +1,176 @@
+
+26.05
+x added CMS grid system (grid rotation and translation)
+x updated geodata interpolation
+x updated grid file format
+x added automatic selection of symmetry planes for 2D simulations
+
+26.01
+x added spatial geodat filter
+x added Gaussian kernel geodat interpolation
+
+25.12
+x updated local inversed distance interpolation
+
+25.11
+x optimzed grid file writing
+x moved grid files to folder
+x added geo_patch functionality
+
+25.07
+x fixed fluvial box
+
+25.5
+x added stl to geo.dat conversion
+
+24.12
+x added NHFLOW to CFD HDC coupling
+x updated HDC 
+x fixed jacket member
+
+23.05
+x updated ray cast algorithm
+
+24.03
+x updated HDC file names
+
+24.02
+x improved decomposition correction
+x fixed decomposition seg fault for large core counts
+x fixed beam and jacket member geometry
+
+23.08
+ x added solid beam
+
+23.03
+x fixed 2D geodat 
+x fixed wedge in z-dir
+
+23.01
+x added SFLOW HDC 
+
+22.11
+x fixed solid crash for NUG
+x added corner ghost cell update for periodicBC
+x RAM usage optimization
+x added support for continuous HDC file support
+x HDC memory allocation update
+
+22.04
+x improved RAM usage optimization
+
+22.03
+x fixed a seg fault problem for complex grids
+x fixed combined solid.vtp and topo.vtp print out
+x added RAM usage optimizaiton suport for solid and topo
+x improved geodat holecheck
+x fixed partition paraview printout
+x fixed decomposition for y-dominat partition
+
+21.11
+x renamed data to dataset for gcc compatibility
+
+21.10
+x fixed the box array geometry
+x fixed a bug for topo geometry
+
+21.09
+x added decomp partition vtp print out
+x added topo section
+x added geodat for either topo or solid
+x added grid preview vtu file
+x removed objects, fully replaced with solids
+x removed freecoor
+x removed S34,S35,S36 and S38
+x fixed origin_xyx bug for M 20 1 decomposition
+
+21.02
+x fixed kriging 
+x added support for periodic boundary conditions
+
+20.10
+x improved three-zone grid refinement
+x improved stl ascii recognition
+
+20.09
+x added new geodat sampling algorithms
+x added various geodat point print outs
+x partition origin fix
+
+20.08
+x fixed a problem for 2D local inverse distance interpolation
+
+20.06
+x changed hydrodynamic coupling file numbering
+
+20.02
+x added kriging to geodat interpolation
+x added line skipping to geodat interpolation
+x added duplicate identification to geodat interpolation
+x improved solid raytracing
+x added FNPF to CFD coupling capabilities (HDC)
+
+19.10
+x added fluvial box
+x improved solid raytracing
+x fixed STL rotation
+
+18.12
+x added jacket rotation
+x fixed solid and stl geometry problems
+x fixed: B101 9, B 102 9, B 103 9
+x added geo.dat print-out in paraview format
+
+18.07
+x fixed a NUG-related solid geometry crash
+x fixed solid ray-tracing bug
+x fixed a bug with box object
+x fixed a bug with arch bridge solid
+x fixed a problem with coordinates (i.e. large numbers) for mesh, solid and topo
+x changed format of grid file from ascii to binary
+
+18.06
+x added non-unifom grid support
+x added a selection of stretching functions
+x added coupling of solid and geodat rotation
+
+18.01
+x minor bug fixed
+
+17.12
+x added solid cylinder in y-direction
+x added solid cylinders S 37 and S 38
+
+17.06
+x added jacket members for solid
+x added csg for stl and solid
+
+17.02
+x added semi-ellipsoid with vertical base and rotation solid
+x added semi-ellipsoid with vertical base solid
+x added ellipsoid solid
+x added sphere solid
+x fixed: reduced memory usage when using solids
+
+16.12
+x added thin solids
+x fixed crash for large amount of vertical cylinders, object type
+x added solid.stl print out
+x added vertical cylinder to solid
+x added arch bridge solid object
+x fixed M20 2 for a rare crash
+x fixed a rare decomposition problem for large cell counts
+
+16.03
+x added tetrahedon to solid
+x added pyramid to solid
+x added wedge to solid
+x added hexahedron to solid
+
+15.12
+x added local inverse distance weighting for geodat points
+x added rotation of geodat points
+
+15.02
+x added new solid geometry: ogee weir
+x added M 20 2 for improved domain decomposition with better load balancing

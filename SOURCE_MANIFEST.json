@@ -1,0 +1,140 @@
+{
+  "project": "RECE",
+  "generated_at": "2026-06-03T23:30:00+08:00",
+  "workspace_policy": {
+    "rece_root": "D:\\AAA\\RECE",
+    "allowed_project_writes": [
+      "D:\\AAA\\RECE"
+    ],
+    "source_data_read_only": [
+      "D:\\AAA\\hk_dtm_example"
+    ],
+    "original_source_roots_read_only": [
+      "D:\\AAA\\Celeris-WebGPU",
+      "D:\\AAA\\REEF3D"
+    ],
+    "reason_originals_not_modified": "The RECE integration is built from copied sources so Celeris-WebGPU and REEF3D/DIVEMesh remain available as pristine upstream deployments."
+  },
+  "legal_policy": {
+    "rece_copyright": "Copyright (C) 2026 Hong Kong University of Science and Technology (Guangzhou) / HKUST-GZ, MHRF, Marine Hydrodynamic Research Facility.",
+    "distribution_license": "GPL-3.0 for the integrated RECE distribution because it includes GPL-3.0-or-later REEF3D and DIVEMesh components.",
+    "root_license_file": "D:\\AAA\\RECE\\LICENSE",
+    "third_party_notice_file": "D:\\AAA\\RECE\\THIRD_PARTY_NOTICES.md",
+    "upstream_licenses": [
+      {
+        "name": "Celeris-WebGPU",
+        "license": "MIT",
+        "copyright": "Copyright (c) 2023 plynett; maintained by Patrick Lynett.",
+        "license_file": "D:\\AAA\\RECE\\web\\LICENSE"
+      },
+      {
+        "name": "REEF3D",
+        "license": "GPL-3.0-or-later",
+        "copyright": "Copyright 2008-2026 Hans Bihs.",
+        "license_file": "D:\\AAA\\RECE\\third_party\\REEF3D\\src\\REEF3D\\LICENSE"
+      },
+      {
+        "name": "DIVEMesh",
+        "license": "GPL-3.0-or-later",
+        "copyright": "Copyright 2008-2026 Hans Bihs.",
+        "license_file": "D:\\AAA\\RECE\\third_party\\REEF3D\\src\\DIVEMesh\\LICENSE"
+      }
+    ]
+  },
+  "copied_sources": [
+    {
+      "name": "Celeris-WebGPU frontend",
+      "source": "D:\\AAA\\Celeris-WebGPU",
+      "destination": "D:\\AAA\\RECE\\web",
+      "role": "Visualization, WebGPU texture/render pipeline, UI, time-series and export controls. The original Celeris fluid compute passes are skipped in externalSolver reef3d mode.",
+      "exclusions": [
+        "browser caches",
+        "temporary run logs",
+        "build caches",
+        "unneeded generated outputs"
+      ],
+      "current_copy_summary": {
+        "files": 660,
+        "bytes": 1469953476,
+        "sha256_manifest": "7fcc253807aa16bdf1beafef338137f074b887066a7d57f0c0a9704e39bc682c"
+      }
+    },
+    {
+      "name": "REEF3D binaries",
+      "source": "D:\\AAA\\REEF3D\\bin",
+      "destination": "D:\\AAA\\RECE\\third_party\\REEF3D\\bin",
+      "role": "Local DiveMESH.exe and reef3d.exe used by the RECE backend workflow.",
+      "exclusions": [],
+      "current_copy_summary": {
+        "files": 2,
+        "bytes": 10996736,
+        "sha256_manifest": "f2d0f50943c3f0839570701657bc3af642dc28a39ad023b709a4795d0419575d"
+      }
+    },
+    {
+      "name": "REEF3D solver source",
+      "source": "D:\\AAA\\REEF3D\\src\\REEF3D",
+      "destination": "D:\\AAA\\RECE\\third_party\\REEF3D\\src\\REEF3D",
+      "role": "Reference solver source. RECE does not change the REEF3D numerical implementation.",
+      "exclusions": [
+        "external build products",
+        "local cache directories"
+      ],
+      "current_copy_summary": {
+        "files": 3838,
+        "bytes": 393310513,
+        "sha256_manifest": "4c58f427bb3448bc293e7a5aa08afc0fceac2f8a27fa4fd93b8d2c06e4046c79"
+      }
+    },
+    {
+      "name": "DIVEMesh source",
+      "source": "D:\\AAA\\REEF3D\\src\\DIVEMesh",
+      "destination": "D:\\AAA\\RECE\\third_party\\REEF3D\\src\\DIVEMesh",
+      "role": "Reference meshing source used with the copied DiveMESH binary.",
+      "exclusions": [
+        "external build products",
+        "local cache directories"
+      ],
+      "current_copy_summary": {
+        "files": 241,
+        "bytes": 22960475,
+        "sha256_manifest": "f86d9916c618d2990c3e72b21e96577684819c2d37f6822d8011cb9d1d99ca2f"
+      }
+    },
+    {
+      "name": "REEF3D documentation",
+      "source": "D:\\AAA\\REEF3D\\docs",
+      "destination": "D:\\AAA\\RECE\\third_party\\REEF3D\\docs",
+      "role": "Copied reference documentation for local reproducibility.",
+      "exclusions": [],
+      "current_copy_summary": {
+        "files": 2,
+        "bytes": 38884439,
+        "sha256_manifest": "04c87cf279482bc9a615418d001d9892b3880af3e6339a40693ea80bfdb343aa"
+      }
+    },
+    {
+      "name": "REEF3D example simulations",
+      "source": "D:\\AAA\\REEF3D\\simulations",
+      "destination": "D:\\AAA\\RECE\\third_party\\REEF3D\\simulations",
+      "role": "Copied examples used for reference and converter regression tests.",
+      "exclusions": [
+        "unneeded runtime caches",
+        "browser caches"
+      ],
+      "current_copy_summary": {
+        "files": 13071,
+        "bytes": 409927480,
+        "sha256_manifest": "30bb32aa2c3be1ff35de20b094d4d3a5ec2c6833adfd46ee589daf7e73f10b79"
+      }
+    }
+  ],
+  "local_hk_smoke_data_policy": {
+    "source_root": "D:\\AAA\\hk_dtm_example",
+    "copied_raw_data": false,
+    "derived_rece_outputs": [
+      "D:\\AAA\\RECE\\examples\\hk_victoria_smoke",
+      "D:\\AAA\\RECE\\web\\examples\\hk_victoria_smoke"
+    ]
+  }
+}

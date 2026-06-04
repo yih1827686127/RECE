@@ -1,0 +1,71 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2018-2026 Tobias Martin
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Tobias Martin
+--------------------------------------------------------------------*/
+
+#include"mooring_Catenary.h"
+#include"lexer.h"
+#include"ghostcell.h"
+#include<sys/stat.h>
+
+void mooring_Catenary::initialize(lexer *p, ghostcell *pgc)
+{
+    const double rho_f = p->W1;
+
+    rho_c = p->X311_rho_c[line];
+    w = p->X311_w[line]*9.81*(rho_c - rho_f)/rho_c;
+    L = p->X311_l[line];
+    H = p->X311_H[line];
+    EA = p->X311_EA[line];
+
+    // Calculate distances between start and mooring points
+    dx = p->X311_xe[line] - p->X311_xs[line];
+    dy = p->X311_ye[line] - p->X311_ys[line];
+    dz = p->X311_ze[line] - p->X311_zs[line];
+    dxy_aim = sqrt(dx*dx+dy*dy);
+
+    p->Darray(x,H);
+    p->Darray(y,H);
+    p->Darray(z,H);
+    p->Darray(T,H);
+    p->Darray(B,2);
+    p->Darray(F,2);
+    p->Darray(A,2,2);
+
+    if(p->mpirank==0)
+    {
+        char str[1000];
+        sprintf(str,"./REEF3D_CFD_6DOF/REEF3D_6DOF_mooring_force_%i.dat",line);
+        eTout.open(str);
+        eTout<<"time \t T"<<endl;
+    }
+    printtime = 0.0;
+
+    // Initialise breaking
+    broken = false;
+    curr_time = 0.0;
+    breakTension = p->X314 > 0 ? p->X314_T[line]: 0.0;
+    breakTime = p->X315 > 0 ? p->X315_t[line]: 0.0;
+
+    FH_0 = 0.01;
+    FV_0 = 0.01;
+    calcForce(p,pgc);
+    print(p);
+}

@@ -1,0 +1,86 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2008-2026 Hans Bihs
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Tobias Martin
+--------------------------------------------------------------------*/
+
+#ifndef SIXDOF_VOID_H_
+#define SIXDOF_VOID_H_
+
+#include"6DOF.h"
+#include<vector>
+#include<fstream>
+#include<iostream>
+#include <Eigen/Dense>
+
+class lexer;
+class fdm;
+class fdm_nhf;
+class ghostcell;
+class mooring;
+class net_interface;
+
+using namespace std;
+
+class sixdof_void final : public sixdof
+{
+public:
+	sixdof_void(lexer*,ghostcell*);
+	virtual ~sixdof_void();
+    
+    void start_cfd(lexer*,fdm*,ghostcell*,int,field&,field&,field&,field&,field&,field&,bool) override final;
+    void start_nhflow(lexer*,fdm_nhf*,ghostcell*,int,double*,double*,double*,double*,double*,double*,slice&,slice&,bool) override final;
+    
+    void start_sflow(lexer*,fdm2D*,ghostcell*,int,slice&,slice&,slice&,slice&,slice&,slice&,slice&,bool) override final;
+    
+	void ini(lexer*,ghostcell*) override final;
+    void initialize(lexer*, fdm*, ghostcell*) override final;
+    void initialize(lexer*, fdm2D*, ghostcell*) override final;
+    void initialize(lexer*, fdm_nhf*, ghostcell*) override final;
+
+    
+    void isource(lexer*,fdm*,ghostcell*) override final;
+    void jsource(lexer*,fdm*,ghostcell*) override final;
+    void ksource(lexer*,fdm*,ghostcell*) override final;
+    
+    void isource(lexer*,fdm_nhf*,ghostcell*,slice&) override final;
+    void jsource(lexer*,fdm_nhf*,ghostcell*,slice&) override final;
+    void ksource(lexer*,fdm_nhf*,ghostcell*,slice&) override final;
+    
+    void isource2D(lexer*,fdm2D*,ghostcell*) override final;
+    void jsource2D(lexer*,fdm2D*,ghostcell*) override final;
+    
+private:
+    net_interface *pnetinter;
+    
+    Eigen::Matrix3d quatRotMat;
+
+    // Mooring
+	vector<double> X311_xen, X311_yen, X311_zen;
+	vector<mooring*> pmooring;
+    
+	vector<double> Xme, Yme, Zme, Kme, Mme, Nme;    
+	vector<double> Xne, Yne, Zne, Kne, Mne, Nne;    
+    
+    double alpha[3],gamma[3],zeta[3];
+    
+    double printtime;
+};
+
+#endif

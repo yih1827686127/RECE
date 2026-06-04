@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CodeLite_Project Name="DIVEMesh" InternalType="Console" Version="11000">
+  <Plugins>
+    <Plugin Name="qmake">
+      <![CDATA[00010001N0007Release000000000000]]>
+    </Plugin>
+  </Plugins>
+  <Reconciliation>
+    <Regexes/>
+    <Excludepaths/>
+    <Ignorefiles/>
+    <Extensions>
+      <![CDATA[*.cpp;*.c;*.h;*.hpp;*.xrc;*.wxcp;*.fbp]]>
+    </Extensions>
+    <Topleveldir>/Users/tobias/REEF3D/Code/DIVEMesh_dev</Topleveldir>
+  </Reconciliation>
+  <Description/>
+  <Dependencies/>
+  <VirtualDirectory Name="Headers">
+    <VirtualDirectory Name="Porous Structures">
+      <File Name="porous.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Topo">
+      <File Name="topo.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Geometry">
+      <File Name="geometry.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="HDC">
+      <File Name="hdc.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Baselayer">
+      <File Name="baselayer.h"/>
+      <File Name="box_bl.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Boundary">
+      <File Name="bc.h"/>
+      <File Name="surface.h"/>
+      <File Name="slice.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Decomposition">
+      <File Name="decomp.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="DIVE">
+      <VirtualDirectory Name="Dataset">
+        <File Name="dataset.h"/>
+      </VirtualDirectory>
+      <File Name="dive.h"/>
+      <VirtualDirectory Name="Initialize">
+        <File Name="initialize.h"/>
+      </VirtualDirectory>
+      <File Name="module.h"/>
+      <File Name="module_void.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Geodat">
+      <VirtualDirectory Name="Interpolation">
+        <File Name="gaussian.h"/>
+        <File Name="kriging.h"/>
+        <File Name="inverse_dist_local.h"/>
+        <File Name="inverse_dist.h"/>
+        <File Name="interpolation.h"/>
+      </VirtualDirectory>
+      <File Name="geodat.h"/>
+      <File Name="bedlevel.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Main">
+      <VirtualDirectory Name="Driver">
+        <File Name="driver_headers.h"/>
+        <File Name="driver_declarations.h"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Printer">
+        <File Name="print_stl_geodat.h"/>
+        <File Name="print_grid.h"/>
+        <File Name="print_vtu.h"/>
+        <File Name="printer.h"/>
+        <File Name="print_stl.h"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Grid">
+        <VirtualDirectory Name="Coordinates">
+          <File Name="coordinates.h"/>
+        </VirtualDirectory>
+        <File Name="looping.h"/>
+        <File Name="iterators.h"/>
+        <File Name="increment.h"/>
+        <VirtualDirectory Name="Field">
+          <File Name="field.h"/>
+          <File Name="field1d.h"/>
+          <File Name="field2d.h"/>
+        </VirtualDirectory>
+        <VirtualDirectory Name="Intfield">
+          <File Name="intfield.h"/>
+          <File Name="intfield1d.h"/>
+          <File Name="intfield1dy.h"/>
+          <File Name="intfield2d.h"/>
+        </VirtualDirectory>
+        <File Name="resize.h"/>
+      </VirtualDirectory>
+      <File Name="driver.h"/>
+      <File Name="main.h"/>
+      <File Name="lexer.h"/>
+      <File Name="template.h"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Solid">
+      <File Name="solid.h"/>
+    </VirtualDirectory>
+  </VirtualDirectory>
+  <VirtualDirectory Name="Sources">
+    <VirtualDirectory Name="Porous Structures">
+      <File Name="porous.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Topo">
+      <File Name="topo_gcbest.cpp"/>
+      <File Name="topo.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Geometry">
+      <File Name="geometry_beam.cpp"/>
+      <VirtualDirectory Name="Fluvial Box">
+        <File Name="geometry_fluvial_box_v2.cpp"/>
+        <File Name="geometry_fluvial_box_v1.cpp"/>
+        <File Name="geometry_fluvial_box_util.cpp"/>
+        <File Name="geometry_fluvial_box_fill_segments.cpp"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Ray Casting">
+        <File Name="geometry_ray_cast_x_gcb.cpp"/>
+        <File Name="geometry_ray_cast_io_zcorr.cpp"/>
+        <File Name="geometry_ray_cast_io_ycorr.cpp"/>
+        <File Name="geometry_ray_cast_io_x.cpp"/>
+        <File Name="geometry_ray_cast_z.cpp"/>
+        <File Name="geometry_ray_cast_y.cpp"/>
+        <File Name="geometry_ray_cast_x.cpp"/>
+        <File Name="geometry_ray_cast.cpp"/>
+      </VirtualDirectory>
+      <File Name="geometry_wedge_z.cpp"/>
+      <File Name="geometry_wedge_y.cpp"/>
+      <File Name="geometry_wedge_x.cpp"/>
+      <File Name="geometry_wedge.cpp"/>
+      <File Name="geometry_tetrahedon.cpp"/>
+      <File Name="geometry_stl.cpp"/>
+      <File Name="geometry_sphere.cpp"/>
+      <File Name="geometry_semicyl_y.cpp"/>
+      <File Name="geometry_rotation.cpp"/>
+      <File Name="geometry_pyramid.cpp"/>
+      <File Name="geometry_plate_x.cpp"/>
+      <File Name="geometry_ogee-weir.cpp"/>
+      <File Name="geometry_jacketmember_norm.cpp"/>
+      <File Name="geometry_hexahedron.cpp"/>
+      <File Name="geometry_ellipsoid_semi_rot.cpp"/>
+      <File Name="geometry_ellipsoid_semi.cpp"/>
+      <File Name="geometry_ellipsoid.cpp"/>
+      <File Name="geometry_cylinder_z.cpp"/>
+      <File Name="geometry_cylinder_y.cpp"/>
+      <File Name="geometry_cone_z.cpp"/>
+      <File Name="geometry_cone_y.cpp"/>
+      <File Name="geometry_cone_x.cpp"/>
+      <File Name="geometry_box_array.cpp"/>
+      <File Name="geometry_box.cpp"/>
+      <File Name="geometry_arch.cpp"/>
+      <File Name="geometry.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="HDC">
+      <File Name="hdc_write_cfd.cpp"/>
+      <File Name="hdc_read_cfd.cpp"/>
+      <File Name="hdc_write_nhflow.cpp"/>
+      <File Name="hdc_read_nhflow.cpp"/>
+      <File Name="hdc_write_sflow.cpp"/>
+      <File Name="hdc_read_sflow.cpp"/>
+      <File Name="hdc_write_fnpf.cpp"/>
+      <File Name="hdc_read_fnpf.cpp"/>
+      <File Name="hdc_write_header.cpp"/>
+      <File Name="hdc_read_mainheader.cpp"/>
+      <File Name="hdc_read_header.cpp"/>
+      <File Name="hdc_filename_out.cpp"/>
+      <File Name="hdc_filename_in.cpp"/>
+      <File Name="hdc_decomp.cpp"/>
+      <File Name="hdc_allocate.cpp"/>
+      <File Name="hdc.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Baselayer">
+      <File Name="baselayer.cpp"/>
+      <File Name="box_bl.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Boundary">
+      <VirtualDirectory Name="BC">
+        <File Name="bc.cpp"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Surface">
+        <File Name="surface_gcbest.cpp"/>
+        <File Name="surface_plate.cpp"/>
+        <File Name="surface.cpp"/>
+        <File Name="surface_dir.cpp"/>
+        <File Name="surface_solid.cpp"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Slice">
+        <File Name="slice.cpp"/>
+      </VirtualDirectory>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Decomposition">
+      <VirtualDirectory Name="Correction">
+        <File Name="decomp_correction_z.cpp"/>
+        <File Name="decomp_correction_y.cpp"/>
+        <File Name="decomp_correction_x.cpp"/>
+        <File Name="decomp_correction.cpp"/>
+      </VirtualDirectory>
+      <File Name="decomp_partition_planes.cpp"/>
+      <File Name="decomp_vtp.cpp"/>
+      <File Name="decomp_partition_manual.cpp"/>
+      <File Name="decomp.cpp"/>
+      <File Name="decomp_print.cpp"/>
+      <File Name="decomp_count.cpp"/>
+      <File Name="decomp_periodic_surfco.cpp"/>
+      <File Name="decomp_surfco.cpp"/>
+      <File Name="decomp_periodic_surf.cpp"/>
+      <File Name="decomp_periodic.cpp"/>
+      <File Name="decomp_surface.cpp"/>
+      <File Name="decomp_partition.cpp"/>
+      <File Name="decomp_analyse.cpp"/>
+      <File Name="decomp_costfunc.cpp"/>
+      <File Name="decomp_paraslice.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="DIVE">
+      <File Name="dive.cpp"/>
+      <VirtualDirectory Name="Initialize">
+        <File Name="initialize.cpp"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Dataset">
+        <File Name="dataset_inversedist.cpp"/>
+        <File Name="dataset.cpp"/>
+      </VirtualDirectory>
+      <File Name="module_void.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Main">
+      <File Name="driver.cpp"/>
+      <VirtualDirectory Name="Grid">
+        <VirtualDirectory Name="Coordinates">
+          <File Name="coordinates.cpp"/>
+        </VirtualDirectory>
+        <File Name="increment.cpp"/>
+        <VirtualDirectory Name="Field">
+          <File Name="field.cpp"/>
+          <File Name="field1d.cpp"/>
+          <File Name="field2d.cpp"/>
+        </VirtualDirectory>
+        <VirtualDirectory Name="Fieldint">
+          <File Name="intfield.cpp"/>
+          <File Name="intfield1d.cpp"/>
+          <File Name="intfield1dy.cpp"/>
+          <File Name="intfield2d.cpp"/>
+        </VirtualDirectory>
+        <VirtualDirectory Name="Resize">
+          <File Name="resize.cpp"/>
+          <File Name="resize_delete.cpp"/>
+          <File Name="resize_resize.cpp"/>
+        </VirtualDirectory>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Driver">
+        <File Name="driver_analytics.cpp"/>
+      </VirtualDirectory>
+      <File Name="ini.cpp"/>
+      <File Name="lexer.cpp"/>
+      <VirtualDirectory Name="Lexer">
+        <File Name="read_control_preread.cpp"/>
+        <File Name="lexer_origin.cpp"/>
+        <File Name="read_topo.cpp"/>
+        <File Name="read_stl.cpp"/>
+        <VirtualDirectory Name="Grid Spacing">
+          <File Name="lexer_gridspacing_print.cpp"/>
+          <File Name="lexer_gridspacing_cellBased.cpp"/>
+          <File Name="lexer_gridspacing_fsf.cpp"/>
+          <File Name="lexer_gridspacing.cpp"/>
+        </VirtualDirectory>
+        <File Name="lexer_createspace.cpp"/>
+        <File Name="read_control.cpp"/>
+        <File Name="read_geodat.cpp"/>
+        <File Name="read_data.cpp"/>
+        <File Name="read_solid.cpp"/>
+        <File Name="lexer_pos.cpp"/>
+      </VirtualDirectory>
+      <File Name="logic.cpp"/>
+      <File Name="main.cpp"/>
+      <VirtualDirectory Name="Printer">
+        <File Name="print_stl_geodat.cpp"/>
+        <File Name="print_grid.cpp"/>
+        <File Name="print_vtu.cpp"/>
+        <File Name="print_debug.cpp"/>
+        <File Name="print_solid.cpp"/>
+        <File Name="print_bottom.cpp"/>
+      </VirtualDirectory>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Geodat">
+      <File Name="geodat_filter.cpp"/>
+      <VirtualDirectory Name="Gaussian Kernel">
+        <File Name="gaussian_setup.cpp"/>
+        <File Name="gaussian_kernel.cpp"/>
+        <File Name="gaussian.cpp"/>
+      </VirtualDirectory>
+      <File Name="geodat_patch.cpp"/>
+      <File Name="geodat_holecheck.cpp"/>
+      <File Name="geodat_remove_bounds.cpp"/>
+      <File Name="geodat_multigrid_ccipol.cpp"/>
+      <File Name="geodat_print-sampled.cpp"/>
+      <File Name="geodat_print-vtp.cpp"/>
+      <File Name="geodat_setup_ijk.cpp"/>
+      <File Name="geodat_pointcheck.cpp"/>
+      <VirtualDirectory Name="Inverse Distance Local">
+        <File Name="inverse_dist_local_setup.cpp"/>
+        <File Name="inverse_dist_local.cpp"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Inverse Distance">
+        <File Name="inverse_dist.cpp"/>
+      </VirtualDirectory>
+      <VirtualDirectory Name="Kriging">
+        <File Name="kriging_ini.cpp"/>
+        <File Name="kriging_solve.cpp"/>
+        <File Name="kriging_semivariogram.cpp"/>
+        <File Name="kriging_rearrange.cpp"/>
+        <File Name="kriging.cpp"/>
+      </VirtualDirectory>
+      <File Name="geodat_multigrid.cpp"/>
+      <File Name="geodat.cpp"/>
+      <File Name="bedlevel.cpp"/>
+    </VirtualDirectory>
+    <VirtualDirectory Name="Solid">
+      <File Name="solid_gcbest.cpp"/>
+      <File Name="solid_fluvial_box.cpp"/>
+      <File Name="solid.cpp"/>
+    </VirtualDirectory>
+  </VirtualDirectory>
+  <Settings Type="Executable">
+    <GlobalSettings>
+      <Compiler Options="-std=c++17" C_Options="" Assembler="">
+        <IncludePath Value="."/>
+      </Compiler>
+      <Linker Options="">
+        <LibraryPath Value="."/>
+      </Linker>
+      <ResourceCompiler Options=""/>
+    </GlobalSettings>
+    <Configuration Name="Debug" CompilerType="gnu g++" DebuggerType="GNU gdb debugger" Type="Executable" BuildCmpWithGlobalSettings="append" BuildLnkWithGlobalSettings="append" BuildResWithGlobalSettings="append">
+      <Compiler Options="-g;-O0;-Wall" C_Options="-g;-O0;-Wall" Assembler="" Required="yes" PreCompiledHeader="" PCHInCommandLine="no" PCHFlags="" PCHFlagsPolicy="0">
+        <IncludePath Value="."/>
+      </Compiler>
+      <Linker Options="" Required="yes"/>
+      <ResourceCompiler Options="" Required="no"/>
+      <General OutputFile="$(IntermediateDirectory)/$(ProjectName)" IntermediateDirectory="./Debug" Command="./$(ProjectName)" CommandArguments="" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(IntermediateDirectory)" PauseExecWhenProcTerminates="yes" IsGUIProgram="no" IsEnabled="yes"/>
+      <BuildSystem Name="Default"/>
+      <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
+        <![CDATA[]]>
+      </Environment>
+      <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="" IsExtended="no">
+        <DebuggerSearchPaths/>
+        <PostConnectCommands/>
+        <StartupCommands/>
+      </Debugger>
+      <PreBuild/>
+      <PostBuild/>
+      <CustomBuild Enabled="no">
+        <RebuildCommand/>
+        <CleanCommand/>
+        <BuildCommand/>
+        <PreprocessFileCommand/>
+        <SingleFileCommand/>
+        <MakefileGenerationCommand/>
+        <ThirdPartyToolName>None</ThirdPartyToolName>
+        <WorkingDirectory/>
+      </CustomBuild>
+      <AdditionalRules>
+        <CustomPostBuild/>
+        <CustomPreBuild/>
+      </AdditionalRules>
+      <Completion EnableCpp11="no" EnableCpp14="no">
+        <ClangCmpFlagsC/>
+        <ClangCmpFlags/>
+        <ClangPP/>
+        <SearchPaths/>
+      </Completion>
+    </Configuration>
+    <Configuration Name="Release" CompilerType="gnu g++" DebuggerType="GNU gdb debugger" Type="Executable" BuildCmpWithGlobalSettings="append" BuildLnkWithGlobalSettings="append" BuildResWithGlobalSettings="append">
+      <Compiler Options="-O3;-w; -DVERSION=\&quot;$(GIT_VERSION)\&quot;" C_Options="-O3;-w" Assembler="" Required="yes" PreCompiledHeader="" PCHInCommandLine="no" PCHFlags="" PCHFlagsPolicy="0">
+        <IncludePath Value="."/>
+      </Compiler>
+      <Linker Options="" Required="yes"/>
+      <ResourceCompiler Options="" Required="no"/>
+      <General OutputFile="./Release/DIVEMesh" IntermediateDirectory="./obj" Command="./$(ProjectName)" CommandArguments="" UseSeparateDebugArgs="no" DebugArguments="" WorkingDirectory="$(IntermediateDirectory)" PauseExecWhenProcTerminates="yes" IsGUIProgram="no" IsEnabled="yes"/>
+      <BuildSystem Name="Default"/>
+      <Environment EnvVarSetName="&lt;Use Defaults&gt;" DbgSetName="&lt;Use Defaults&gt;">
+        <![CDATA[]]>
+      </Environment>
+      <Debugger IsRemote="no" RemoteHostName="" RemoteHostPort="" DebuggerPath="" IsExtended="no">
+        <DebuggerSearchPaths/>
+        <PostConnectCommands/>
+        <StartupCommands/>
+      </Debugger>
+      <PreBuild/>
+      <PostBuild/>
+      <CustomBuild Enabled="no">
+        <RebuildCommand>make -f Makefile_terminal_dm -j 8</RebuildCommand>
+        <CleanCommand>make -f Makefile_terminal_dm clean</CleanCommand>
+        <BuildCommand>make -f Makefile_terminal_dm -j 8</BuildCommand>
+        <PreprocessFileCommand/>
+        <SingleFileCommand/>
+        <MakefileGenerationCommand/>
+        <ThirdPartyToolName>None</ThirdPartyToolName>
+        <WorkingDirectory>/Users/tobias/REEF3D/Code/DIVEMesh_dev</WorkingDirectory>
+      </CustomBuild>
+      <AdditionalRules>
+        <CustomPostBuild/>
+        <CustomPreBuild/>
+      </AdditionalRules>
+      <Completion EnableCpp11="no" EnableCpp14="no">
+        <ClangCmpFlagsC/>
+        <ClangCmpFlags/>
+        <ClangPP/>
+        <SearchPaths/>
+      </Completion>
+    </Configuration>
+  </Settings>
+</CodeLite_Project>

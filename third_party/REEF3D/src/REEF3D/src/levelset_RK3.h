@@ -1,0 +1,56 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2008-2026 Hans Bihs
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Hans Bihs
+--------------------------------------------------------------------*/
+
+#ifndef LEVELSET_RK3_H_
+#define LEVELSET_RK3_H_
+
+#include"freesurface.h"
+#include"gradient.h"
+#include"field4.h"
+
+class picard;
+class heat;
+class concentration;
+class fluid_update;
+
+using namespace std;
+
+class levelset_RK3 final : public freesurface, gradient
+{
+public:
+	levelset_RK3(lexer*, fdm*, ghostcell*, heat*&, concentration*&);
+	virtual ~levelset_RK3();
+	void start(fdm*,lexer*, convection*, solver*, ghostcell*,ioflow*, reini*, particle_corr*,field&) override final;
+    void update(lexer*,fdm*,ghostcell*,field&) override final;
+
+private:
+    fluid_update *pupdate;
+    picard *ppicard;
+    
+    field4 ark1,ark2;
+
+	int gcval_phi;
+    int gcval_u,gcval_v,gcval_w;
+    int gcval_uls,gcval_vls,gcval_wls;
+	double starttime;
+};
+#endif

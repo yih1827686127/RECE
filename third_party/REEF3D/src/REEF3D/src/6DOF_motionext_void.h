@@ -1,0 +1,53 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2008-2026 Hans Bihs
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Hans Bihs
+--------------------------------------------------------------------*/
+
+#ifndef SIXDOF_MOTIONEXT_VOID_H_
+#define SIXDOF_MOTIONEXT_VOID_H_
+
+#include"6DOF_motionext.h"
+#include <Eigen/Dense>
+
+class lexer;
+class fdm;
+class fdm_nhf;
+class fdm2D;
+class ghostcell;
+class field;
+
+using namespace std;
+
+class sixdof_motionext_void final : public sixdof_motionext
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
+    
+    void motionext_trans(lexer*, ghostcell*, Eigen::Vector3d&, Eigen::Vector3d&) override final;
+    void motionext_rot(lexer*, Eigen::Vector3d&, Eigen::Vector3d&, Eigen::Vector4d&, Eigen::Matrix<double, 3, 4>&,  Eigen::Matrix3d&) override final;
+
+    void ini(lexer*,ghostcell*) override final;
+    
+    sixdof_motionext_void(lexer*, ghostcell*);
+	virtual ~sixdof_motionext_void();
+    
+};
+
+#endif

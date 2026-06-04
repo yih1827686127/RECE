@@ -1,0 +1,56 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2018-2026 Tobias Martin
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Authors: Tobias Martin, Hans Bihs
+--------------------------------------------------------------------*/
+
+#ifndef NET_H_
+#define NET_H_
+
+#include<vector>
+#include <Eigen/Dense>
+
+class lexer;
+class fdm;
+class fdm_nhf;
+class ghostcell;
+class sixdof;
+
+using namespace std;
+
+class net
+{    
+public:
+    
+    typedef vector<Eigen::Vector3d> EigenMat;
+        
+	virtual void start_cfd(lexer*, fdm*, ghostcell*, double,Eigen::Matrix3d&, bool)=0;
+    virtual void start_nhflow(lexer*, fdm_nhf*, ghostcell*, double,Eigen::Matrix3d&, bool)=0;
+    
+	virtual void initialize_cfd(lexer*, fdm*, ghostcell*)=0;
+    virtual void initialize_nhflow(lexer*, fdm_nhf*, ghostcell*)=0;
+	virtual void netForces(lexer*, double&, double&, double&, double&, double&, double&)=0;
+    
+    virtual const EigenMat& getLagrangePoints()=0;
+    virtual const EigenMat& getLagrangeForces()=0;
+    virtual const EigenMat& getCollarVel()=0;
+    virtual const EigenMat& getCollarPoints()=0;
+};
+
+#endif

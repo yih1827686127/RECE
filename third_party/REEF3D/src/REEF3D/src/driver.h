@@ -1,0 +1,230 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2008-2026 Hans Bihs
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Hans Bihs
+--------------------------------------------------------------------*/
+
+#ifndef DRIVER_H_
+#define DRIVER_H_
+
+#include"increment.h"
+
+class field;
+class printer;
+class initialize;
+class diffusion;
+class fdm;
+class fdm2D;
+class fdm_fnpf;
+class fdm_nhf;
+class lexer;
+class momentum;
+class ioflow;
+class pressure;
+class poisson;
+class convection;
+class turbulence;
+class solver;
+class ghostcell;
+class timestep;
+class freesurface;
+class reini;
+class particle_corr;
+class sediment;
+class bedload;
+class reinitopo;
+class potential;
+class heat;
+class benchmark;
+class sixdof;
+class fsi;
+class vrans;
+class expdata;
+class concentration;
+class ptf;
+class fnpf;
+class nhflow_fsf;
+class nhflow_convection;
+class nhflow_scalar_convection;
+class nhflow_signal_speed;
+class nhflow_reconstruct;
+class nhflow_fsf_reconstruct;
+class nhflow_turbulence;
+class nhflow_pressure;
+class nhflow_diffusion;
+class nhflow_forcing;
+class nhflow_potential;
+class vrans_nhflow;
+class sflow;
+class fnpf_timestep;
+class nhflow_timestep;
+class patchBC_interface;
+class nhflow;
+class multiphase;
+class nhflow_momentum;
+class momentum_RKLS3_df;
+class momentum_RKLS3_sf;
+class particle_base;
+
+#include<iostream>
+#include<fstream>
+#include<iomanip>
+#include<vector>
+
+using namespace std;
+
+class driver : public increment
+{
+public:
+
+	driver(int&,char**);
+	virtual ~driver();
+    
+    void start();
+    
+    void cfd_driver();
+    void nhflow_driver();
+    void fnpf_driver();
+    void ptf_driver();
+    void sflow_driver();
+    
+	void loop_cfd(fdm*);
+	void loop_cfd_df(fdm*);
+    void loop_cfd_sf(fdm*);
+    void loop_nhflow();
+    void loop_ptf(fdm*);
+    void loop_fnpf();
+    
+	void logic_cfd();
+    void logic_ptf();
+    void logic_fnpf();
+    void logic_nhflow();
+    void logic_sflow();
+    
+    void patchBC_logic();
+    
+	void driver_ini_cfd();
+    void driver_ini_nhflow();
+    void driver_ini_fnpf();
+    void driver_ini_ptf();
+    void driver_ini_sflow();
+    
+	void log_ini();
+	void mainlog(lexer*);
+	void maxlog(lexer*);
+    void volumelog(lexer*);
+	void solverlog(lexer*);
+    
+	void makegrid(lexer*,ghostcell*);
+	void makegrid_cds();
+    void makegrid2D(lexer*,ghostcell*);
+    void makegrid2D_basic(lexer*,ghostcell*);
+    void makegrid2D_cds(lexer*,ghostcell*,fdm2D*);
+    void makegrid_sigma(lexer*,ghostcell*);
+    void makegrid_sigma_cds(lexer*,ghostcell*);  
+    
+	void vec_test(lexer*,fdm*,ghostcell*,field&);
+	void func_test(lexer*,fdm*,ghostcell*,field&);
+    void pos_test(lexer*,fdm*,ghostcell*);
+    void ipol_test(lexer*,fdm*,ghostcell*);
+    void ipol_test(lexer*,fdm_nhf*,ghostcell*);
+    void bedslope_test(lexer*,ghostcell*);
+    double bedslope_angle(lexer*,ghostcell*,double,double);
+	double calc();
+    
+    void stop(lexer*,fdm*,ghostcell*);
+
+	printer* pprint;
+	initialize* pini;
+	diffusion* pdiff;
+	diffusion* pturbdiff;
+	diffusion* pconcdiff;
+	diffusion* psuspdiff;
+	fdm* a;
+    fdm2D* b;
+    fdm_fnpf *c;
+    fdm_nhf *d;
+	lexer* p;
+	momentum* pmom;
+	ioflow* pflow;
+	pressure* ppress;
+	poisson* ppois;
+	convection* pconvec;
+	convection* pturbdisc;
+	convection* pfsfdisc;
+    convection* pmpconvec;
+	convection* pconcdisc;
+    convection* pheatdisc;
+	turbulence* pturb;
+	solver* psolv;
+	solver* ppoissonsolv;
+    solver* plapsolv;
+	ghostcell* pgc;
+	timestep* ptstep;
+	freesurface* pfsf;
+	reini* preini;
+	particle_corr* ppls; 
+	sediment* psed;
+	reinitopo* preto;
+    reinitopo* preso;
+	heat* pheat;
+	potential* potflow;
+	benchmark* pbench;
+	fsi* pfsi;
+	vrans* pvrans;
+	expdata *pdata;
+	concentration *pconc;
+    fnpf *ppfsg;
+    ptf *pptf;
+    nhflow_fsf *pnhfsf;
+    sflow *psflow;
+    fnpf_timestep *pftstep;
+    patchBC_interface *pBC;
+    nhflow *pnhf;
+    nhflow_convection *pnhfconvec;
+    nhflow_scalar_convection *pnhfscalarconvec;
+    nhflow_signal_speed *pss;
+    nhflow_reconstruct *precon;
+    nhflow_pressure *pnhpress;
+    nhflow_turbulence *pnhfturb;
+    nhflow_diffusion *pnhfdiff,*pnhfturbdiff; 
+    nhflow_potential *pnhfpot;
+    multiphase *pmp;
+    nhflow_timestep *pnhfstep;
+    nhflow_momentum *pnhfmom;
+    nhflow_forcing *pnhfdf;
+    vrans_nhflow *pnhfvrans;
+    momentum_RKLS3_df *pmom_df;
+    momentum_RKLS3_sf *pmom_sf;
+    sixdof *p6dof;
+    turbulence *pturbcfd;
+
+private:
+    double starttime, endtime;
+    ofstream mainlogout;
+    ofstream versionlogout;
+    ofstream maxlogout;
+    ofstream vollogout;
+    ofstream solvlogout;
+	
+	double nom,val;
+    char version[100];
+};
+
+#endif

@@ -1,0 +1,48 @@
+PackageIdentifier: Microsoft.msmpi
+PackageVersion: 10.1.12498.52
+Tags:
+- development
+- message-passing-interface-standard
+- messagepassinginterfacestandard
+- mpi
+- parallel
+- ms-mpi
+- microsoftmpi
+- microsoft-mpi
+- msmpisetup.exe
+- mpich
+PackageLocale: en-US
+Author: Microsoft Corporation
+Copyright: "\xA9 Microsoft Corporation. All rights reserved."
+CopyrightUrl: https://github.com/microsoft/Microsoft-MPI/blob/master/LICENSE.txt
+ShortDescription: A Microsoft implementation of the Message Passing Interface standard
+  for developing and running parallel applications on the Windows platform.
+License: MIT
+LicenseUrl: https://github.com/microsoft/Microsoft-MPI/blob/master/LICENSE.txt
+PackageName: Microsoft MPI
+PackageUrl: https://www.microsoft.com/en-gb/download/details.aspx?id=105289
+Publisher: Microsoft Corporation
+PublisherSupportUrl: https://github.com/microsoft/Microsoft-MPI/issues
+PublisherUrl: https://github.com/microsoft/Microsoft-MPI
+Installers:
+- Architecture: x64
+  InstallerType: exe
+  InstallerSha256: 47443829114d8d8670f77af98939fe876d33eceb35d0ce4e0e85efeec4d87213
+  InstallerUrl: https://download.microsoft.com/download/7/2/7/72731ebb-b63c-4170-ade7-836966263a8f/msmpisetup.exe
+  ReleaseDate: 2025-02-27
+  InstallerAbortsTerminal: false
+  InstallLocationRequired: false
+  RequireExplicitUpgrade: false
+  DisplayInstallWarnings: false
+  DownloadCommandProhibited: false
+  ArchiveBinariesDependOnPath: false
+  MinimumOSVersion: 10.0.0.0
+  UpgradeBehavior: uninstallPrevious
+  AppsAndFeaturesEntries:
+  - InstallerType: msi
+    ProductCode: '{8499ACD3-C1E3-45AB-BF96-DA491727EBE1}'
+  InstallerSwitches:
+    Silent: -unattend
+    SilentWithProgress: -unattend
+ManifestVersion: 1.12.0
+ManifestType: merged

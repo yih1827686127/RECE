@@ -1,0 +1,6 @@
+numpy>=1.23.5,<2.3
+scipy>=1.14,<1.15
+Pillow>=10
+requests>=2.32
+vtk>=9.3
+pywebview>=6.2,<7

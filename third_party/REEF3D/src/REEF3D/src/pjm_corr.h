@@ -1,0 +1,71 @@
+/*--------------------------------------------------------------------
+REEF3D
+Copyright 2008-2026 Hans Bihs
+
+This file is part of REEF3D.
+
+REEF3D is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License
+for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses/>.
+--------------------------------------------------------------------
+Author: Hans Bihs
+--------------------------------------------------------------------*/
+
+#ifndef PJM_CORR_H_
+#define PJM_CORR_H_
+
+#include"pressure.h"
+#include"pressure_reference.h"
+#include"field4.h"
+
+class heat;
+class concentration;
+class density;
+
+using namespace std;
+
+class pjm_corr final : public pressure, public pressure_reference
+{
+
+public:
+
+	pjm_corr(lexer*, fdm*, ghostcell*, heat*&, concentration*&);
+	virtual ~pjm_corr();
+
+	void start(fdm*,lexer* p, poisson*, solver*, ghostcell*, ioflow*, field&, field&, field&,double) override final;
+    void ini(lexer*,fdm*,ghostcell*) override final;
+	void rhs(lexer*,fdm*,ghostcell*,field&,field&,field&,double);
+	void vel_setup(lexer*,fdm*,ghostcell*,field&,field&,field&,double);
+    void presscorr(lexer*p,fdm *a,field&,field&,field&,field&, double);
+	void ucorr(lexer*p,fdm*,field&,double) override final;
+	void vcorr(lexer*p,fdm*,field&,double) override final;
+	void wcorr(lexer*p,fdm*,field&,double) override final;
+	void upgrad(lexer*,fdm*,slice&,slice&) override final;
+	void vpgrad(lexer*,fdm*,slice&,slice&) override final;
+    void wpgrad(lexer*,fdm*,slice&,slice&) override final;
+
+    field4 pcorr;
+
+private:
+	double starttime,endtime;
+	int count, gcval_press;
+	int gcval_u, gcval_v, gcval_w;
+	
+	void debug(lexer*,fdm*);
+    
+    density *pd;
+};
+
+
+
+#endif
+

@@ -1,0 +1,41 @@
+# Build and packaged outputs
+/build/
+/dist/
+/logs/
+/tmp/
+*.log
+
+# Python / Node / test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+node_modules/
+
+# Local runtime data
+/examples/
+/examples/custom_runs/
+/screenshots/
+*.tmp
+
+# Large example data and precomputed simulation outputs
+/web/examples/
+/web/transect_version/examples/
+/third_party/REEF3D/simulations/
+/third_party/REEF3D/src/REEF3D/Tutorials/
+
+# Browser automation bundles from the upstream web tree
+/web/automation/
+/web/automation_edge_browser/
+/web/automation_firefox_browser/
+
+# Nested third-party repository metadata; source files are vendored as normal files
+**/.git/
+
+# Windows / editor noise
+Thumbs.db
+Desktop.ini
+.DS_Store
+.vscode/
+.idea/
