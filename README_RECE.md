@@ -1,6 +1,81 @@
 # RECE 部署与开发接手说明
 
-最后更新：2026-06-04
+最后更新：2026-06-05
+
+## 0C. GitHub Publication Handoff, 2026-06-05
+
+本轮已按“用户直接下载安装包、本地安装后打开 RECE 处理自己的数据”的目标完成 GitHub 发布。RECE 没有被拆成多个仓库；GitHub 上的 `RECE` 是总项目，包含 RECE Python 衔接层、Celeris-WebGPU 核心前端/WebGPU 管线、REEF3D/DIVEMesh 核心源码与运行组件、打包脚本、图标、许可证和说明文件。
+
+### 0C.1 GitHub 位置
+
+- 源码仓库：`https://github.com/yih1827686127/RECE`
+- Release 页面：`https://github.com/yih1827686127/RECE/releases/tag/v0.1.0-windows`
+- 安装包直链：`https://github.com/yih1827686127/RECE/releases/download/v0.1.0-windows/RECE_Setup.exe`
+- 当前远端分支：`main`
+- 初始发布源码提交：`c18f75e81b01cf37dcbb4723808f25ae99a28d05`，提交信息为 `Initial RECE packaged release`
+- Release tag：`v0.1.0-windows`
+- Release title：`RECE Windows packaged release`
+- Release asset：`RECE_Setup.exe`，大小 `510640461` bytes，GitHub asset digest 为 `sha256:7fcdbffe72a40339c2cc8332e501c9f6dd8b837b72c043ebaf4a654f975ee585`
+
+### 0C.2 用户安装说明
+
+中文：
+
+1. 打开 Release 页面并下载 `RECE_Setup.exe`。
+2. 双击运行安装程序。
+3. 安装完成后，从桌面快捷方式或开始菜单启动 `RECE.exe`。
+4. 如果启动器提示缺少 WebView2 Runtime 或 Microsoft MPI，按提示安装对应运行时后重新打开 `RECE.exe`。
+
+English:
+
+1. Open the Release page and download `RECE_Setup.exe`.
+2. Run the installer.
+3. After installation, launch `RECE.exe` from the Desktop shortcut or the Start Menu.
+4. If the launcher reports that WebView2 Runtime or Microsoft MPI is missing, install the prompted runtime and start `RECE.exe` again.
+
+### 0C.3 上传架构和提交范围
+
+- `RECE_Setup.exe` 只作为 GitHub Release 附件发布，不进入普通 Git 历史。
+- 根目录 `.gitignore` 已新增并提交，用于排除构建产物、临时目录、日志、浏览器缓存、测试截图、示例数据和预计算输出。
+- 已提交的核心范围包括：`rece/`、`web/` 的运行核心、`third_party/REEF3D/src`、`third_party/REEF3D/bin`、`third_party/REEF3D/docs`、`packaging/`、`automation/`、`tests/`、`art/`、根目录 README/许可证/环境文件。
+- 已明确排除：`dist/`、`build/`、`tmp/`、`logs/`、`examples/`、`web/examples/`、`web/transect_version/examples/`、`third_party/REEF3D/simulations/`、`third_party/REEF3D/src/REEF3D/Tutorials/`、`web/automation/`、`web/automation_edge_browser/`、`web/automation_firefox_browser/`。
+- REEF3D 与 DIVEMesh 原始源码目录内部带有自己的 `.git` 元数据。为避免 GitHub 上出现 submodule/gitlink，本轮提交时临时将 `third_party\REEF3D\src\REEF3D\.git` 和 `third_party\REEF3D\src\DIVEMesh\.git` 移到 `tmp\nested_git_backup`，完成 `git add` 后已恢复原位。远端仓库中 REEF3D/DIVEMesh 源码以普通文件形式存在。
+- 未使用 Git LFS；当前普通 Git 跟踪文件均未超过 GitHub 100MB 单文件限制。
+
+### 0C.4 本轮验证证据
+
+本地发布前验证：
+
+```powershell
+node --check web\js\i18n.js
+node --check web\js\main.js
+node --check automation\run_rece_packaged_runtime_cdp.mjs
+node --check automation\run_rece_solver_modes_cdp.mjs
+node --check automation\run_rece_core_matrix_cdp.mjs
+python -m unittest tests.test_rece -v
+python -m rece.workflow validate
+```
+
+结果：JS 语法检查通过；Python 单测 `18/18` 通过；`python -m rece.workflow validate` 返回 `status: ok`、`frame_count: 5`、`expected_frame_bytes: 153600`。当前全局开发环境仍会显示 SciPy/NumPy 版本警告，但安装包使用 `D:\AAA\tools\rece-build-venv` 中的 pinned 依赖，不使用该全局环境。
+
+GitHub 发布后验证：
+
+```powershell
+git ls-remote --heads origin main
+gh release view v0.1.0-windows --repo yih1827686127/RECE --json name,tagName,url,assets
+git show origin/main:README.md
+git ls-files | Select-String -Pattern '^(examples|dist|build|tmp|logs|screenshots)/|^web/examples/|^web/transect_version/examples/|^third_party/REEF3D/simulations/|^third_party/REEF3D/src/REEF3D/Tutorials/'
+```
+
+已确认：首次发布时 `origin/main` 指向 `c18f75e81b01cf37dcbb4723808f25ae99a28d05`；Release asset `RECE_Setup.exe` 状态为 `uploaded`；`README.md` 含中英双语安装说明；Git 跟踪文件中没有示例数据、构建缓存、日志目录或 REEF3D simulation/tutorial 输出。
+
+### 0C.5 后续 AI 注意事项
+
+- 若只更新文档或源码，正常 `git add`、`git commit`、`git push` 到 `main` 即可。
+- 若重新生成安装包，不要把 `dist\installer\RECE_Setup.exe` 加入 Git；应创建新的 tag/Release 或替换 Release asset。
+- 若需要重新提交 REEF3D/DIVEMesh 源码目录，必须避免把其内部 `.git` 提交成 submodule/gitlink。推荐继续使用“临时移出嵌套 `.git`，添加源码文件后恢复”的方式。
+- 当前 GitHub CLI 已通过 `winget` 安装，路径为 `%LOCALAPPDATA%\Microsoft\WinGet\Links\gh.exe`；本轮已完成 `gh auth login` 并登录为 `yih1827686127`。
+- 用户侧目标是下载安装包即可使用，后续文档优先把 Release 下载链接和 `RECE.exe` 启动流程放在最前面。
 
 ## 0B. Windows Installer / Packaged Runtime Handoff, 2026-06-04
 
