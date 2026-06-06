@@ -79,10 +79,12 @@ jobs:
         run: bash packaging/linux/build_linux_package.sh
 
       - name: Python unit tests
-        run: "$RECE_LINUX_PYTHON" -m unittest tests.test_rece -v
+        run: |
+          "$RECE_LINUX_PYTHON" -m unittest tests.test_rece -v
 
       - name: Linux solver smoke test
-        run: "$RECE_LINUX_PYTHON" automation/run_linux_solver_smoke.py
+        run: |
+          "$RECE_LINUX_PYTHON" automation/run_linux_solver_smoke.py
 
       - name: Package-mode UI smoke test
         env:
