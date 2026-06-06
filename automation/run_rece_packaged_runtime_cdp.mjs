@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const RECE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const BUILD_PYTHON_WINDOWS = path.resolve(RECE_ROOT, "..", "tools", "rece-build-venv", "Scripts", "python.exe");
+const BUILD_PYTHON_POSIX = path.resolve(RECE_ROOT, "..", "tools", "rece-build-venv", "bin", "python");
 const USER_DATA_DIR = path.join(RECE_ROOT, "tmp", "packaged_runtime_user");
 const SCREENSHOT_DIR = path.join(RECE_ROOT, "examples", "hk_victoria_smoke", "screenshots", "packaged_runtime");
 const REPORT_PATH = path.join(SCREENSHOT_DIR, "rece_packaged_runtime_report.json");
@@ -20,10 +22,24 @@ const CHROME_CANDIDATES = [
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/snap/bin/chromium",
+  "/usr/bin/microsoft-edge",
+  "/usr/bin/microsoft-edge-stable",
 ].filter(Boolean);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function recePython() {
+  if (process.env.RECE_PYTHON) return process.env.RECE_PYTHON;
+  if (existsSync(BUILD_PYTHON_WINDOWS)) return BUILD_PYTHON_WINDOWS;
+  if (existsSync(BUILD_PYTHON_POSIX)) return BUILD_PYTHON_POSIX;
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 async function isPortFree(port) {
@@ -82,6 +98,16 @@ async function fetchJson(url, timeoutMs = 5000) {
   }
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function waitForJson(url, timeoutMs = 30000) {
   const start = Date.now();
   let lastError;
@@ -112,7 +138,8 @@ async function ensureReceServer() {
   const stdoutPath = path.join(RECE_ROOT, "logs", `server_${port}_packaged_stdout.log`);
   const stderrPath = path.join(RECE_ROOT, "logs", `server_${port}_packaged_stderr.log`);
   await fs.mkdir(path.dirname(stdoutPath), { recursive: true });
-  const server = spawn("python", ["-m", "rece.server", "--host", host, "--port", String(port)], {
+  const pythonPath = recePython();
+  const server = spawn(pythonPath, ["-m", "rece.server", "--host", host, "--port", String(port)], {
     cwd: RECE_ROOT,
     detached: false,
     stdio: ["ignore", "pipe", "pipe"],
@@ -128,7 +155,7 @@ async function ensureReceServer() {
   if (!(await waitForUrlOk(healthUrl))) {
     throw new Error(`RECE server did not become reachable at ${healthUrl}`);
   }
-  return { url: app.toString(), process: server, started: true, healthUrl, stdoutPath, stderrPath };
+  return { url: app.toString(), process: server, started: true, healthUrl, stdoutPath, stderrPath, pythonPath };
 }
 
 function findChrome() {
@@ -161,11 +188,12 @@ class CdpClient {
         reject(new Error("WebSocket error"));
       }, { once: true });
     });
-    this.ws.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data);
+    this.ws.addEventListener("message", async (event) => {
+      const message = JSON.parse(await decodeWsData(event.data));
       if (message.id && this.pending.has(message.id)) {
-        const { resolve, reject } = this.pending.get(message.id);
+        const { resolve, reject, timer } = this.pending.get(message.id);
         this.pending.delete(message.id);
+        clearTimeout(timer);
         if (message.error) {
           reject(new Error(`${message.error.message}: ${message.error.data || ""}`));
         } else {
@@ -183,7 +211,11 @@ class CdpClient {
     const id = this.nextId;
     this.nextId += 1;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP command timed out: ${method}`));
+      }, 60000);
+      this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -191,6 +223,14 @@ class CdpClient {
   close() {
     this.ws?.close();
   }
+}
+
+async function decodeWsData(data) {
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8");
+  if (data && typeof data.text === "function") return await data.text();
+  return String(data);
 }
 
 async function runtimeValue(client, expression) {
@@ -215,6 +255,19 @@ async function waitForReadyState(client) {
     await sleep(300);
   }
   throw new Error("Page did not reach ready state.");
+}
+
+async function waitForRuntimeMode(client, expectedMode, timeoutMs = 30000) {
+  const start = Date.now();
+  let lastMode = "";
+  while (Date.now() - start < timeoutMs) {
+    lastMode = await runtimeValue(client, "document.body?.dataset?.receRuntimeMode || ''");
+    if (lastMode === expectedMode) {
+      return lastMode;
+    }
+    await sleep(300);
+  }
+  throw new Error(`Timed out waiting for RECE runtime mode ${expectedMode}; last mode was ${lastMode || "empty"}.`);
 }
 
 function consoleLogs(events) {
@@ -242,6 +295,7 @@ async function main() {
   await fs.mkdir(profileDir, { recursive: true });
   const chrome = spawn(chromePath, [
     `--remote-debugging-port=${cdpPort}`,
+    "--remote-allow-origins=*",
     `--user-data-dir=${profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
@@ -252,11 +306,17 @@ async function main() {
 
   let client;
   try {
-    let targets = await waitForJson(`http://${DEBUG_HOST}:${cdpPort}/json`);
-    let pageTarget = targets.find((target) => target.type === "page");
-    if (!pageTarget) {
-      await fetch(`http://${DEBUG_HOST}:${cdpPort}/json/new?about:blank`, { method: "PUT" });
-      targets = await waitForJson(`http://${DEBUG_HOST}:${cdpPort}/json`);
+    let pageTarget;
+    try {
+      const created = await fetchWithTimeout(`http://${DEBUG_HOST}:${cdpPort}/json/new?about:blank`, { method: "PUT" });
+      if (created.ok) {
+        pageTarget = await created.json();
+      }
+    } catch {
+      // Fall back to the initial browser page below.
+    }
+    if (!pageTarget?.webSocketDebuggerUrl) {
+      const targets = await waitForJson(`http://${DEBUG_HOST}:${cdpPort}/json`);
       pageTarget = targets.find((target) => target.type === "page");
     }
     if (!pageTarget?.webSocketDebuggerUrl) {
@@ -269,7 +329,7 @@ async function main() {
     await client.send("Log.enable");
     await client.send("Page.navigate", { url: serverInfo.url });
     await waitForReadyState(client);
-    await sleep(2000);
+    await waitForRuntimeMode(client, "package");
 
     const runtimeInfo = await fetchJson(new URL("/api/runtime", serverInfo.url).toString());
     const pageState = await runtimeValue(client, `(() => {

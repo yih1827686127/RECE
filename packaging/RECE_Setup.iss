@@ -8,6 +8,7 @@ AppVersion=0.1.0
 AppPublisher=HKUST-GZ / MHRF
 DefaultDirName={autopf}\RECE
 DefaultGroupName=RECE
+DisableDirPage=no
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
 OutputBaseFilename=RECE_Setup
@@ -17,6 +18,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+PrivilegesRequiredOverridesAllowed=dialog commandline
 LicenseFile={#SourceDir}\_internal\licenses\LICENSE
 SetupIconFile={#SourceDir}\_internal\web\assets\rece-app.ico
 UninstallDisplayIcon={app}\RECE.exe
@@ -26,7 +28,7 @@ SetupLogging=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: checkedonce
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-import shutil
+import os
 import subprocess
 import threading
 import time
@@ -14,11 +14,34 @@ from .custom_case import (
     prepare_from_celeris_files,
     prepare_from_reef3d_zip,
 )
-from .paths import DIVEMESH_BIN, LOG_ROOT, REEF3D_BIN, ensure_rece_write, mkdir_rece, rel_to_rece, write_text_rece
+from .paths import DIVEMESH_BIN, LOG_ROOT, REEF3D_BIN, RESOURCE_ROOT, ensure_rece_write, mkdir_rece, rel_to_rece, require_mpiexec, write_text_rece
 
 
 ACTIVE_STATUSES = {"queued", "running"}
 CUSTOM_LOG_ROOT = LOG_ROOT / "custom_runs"
+
+
+def _find_mpiexec() -> str:
+    return require_mpiexec()
+
+
+def _external_solver_env() -> dict[str, str]:
+    env = os.environ.copy()
+    resource_root = RESOURCE_ROOT.resolve()
+    path_entries: list[str] = []
+    for entry in env.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        try:
+            resolved = Path(entry).resolve()
+        except OSError:
+            path_entries.append(entry)
+            continue
+        if resolved == resource_root or resource_root in resolved.parents:
+            continue
+        path_entries.append(entry)
+    env["PATH"] = os.pathsep.join(path_entries)
+    return env
 
 
 class JobManager:
@@ -71,6 +94,9 @@ class JobManager:
             "phase": "queued",
             "progress": 0.0,
             "frame_count": 0,
+            "mpi_ranks": prepared.mpi_ranks,
+            "output_frames": prepared.output_frames,
+            "status_url": f"/api/runs/{run_id}/status",
             "manifest_url": f"/api/runs/{run_id}/manifest",
             "config_url": f"/api/runs/{run_id}/assets/config.json",
             "overlay_url": f"/api/runs/{run_id}/assets/{overlay.name}" if overlay is not None else "",
@@ -86,7 +112,7 @@ class JobManager:
         self._write_empty_manifest(prepared, complete=False)
         with self._lock:
             self._jobs[run_id] = job
-        thread = threading.Thread(target=self._run_reef3d_job, args=(prepared, int(params.get("mpi_ranks", 4))), daemon=True)
+        thread = threading.Thread(target=self._run_reef3d_job, args=(prepared, prepared.mpi_ranks), daemon=True)
         thread.start()
         return self.public_status(run_id) or job
 
@@ -134,7 +160,7 @@ class JobManager:
             self._run_process(run_id, [str(DIVEMESH_BIN)], prepared.case_dir, "divemesh", timeout=900)
 
             self._update(run_id, phase="reef3d", progress=0.15)
-            reef_args = self._reef3d_args(mpi_ranks)
+            reef_args = self._reef3d_args(mpi_ranks, prepared.input_mode)
             log_dir = mkdir_rece(CUSTOM_LOG_ROOT / run_id)
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             stdout_file = (log_dir / "reef3d_stdout.log").open("w", encoding="utf-8")
@@ -146,6 +172,7 @@ class JobManager:
                 stdout=stdout_file,
                 stderr=stderr_file,
                 creationflags=creationflags,
+                env=_external_solver_env(),
             )
             with self._lock:
                 self._processes[run_id] = process
@@ -167,8 +194,11 @@ class JobManager:
             self._update_logs_tail(run_id)
             if return_code != 0:
                 raise RuntimeError(f"reef3d failed with exit code {return_code}")
-            if int((self.get_job(run_id) or {}).get("frame_count", 0)) <= 0:
+            frame_count = int((self.get_job(run_id) or {}).get("frame_count", 0))
+            if frame_count <= 0:
                 raise RuntimeError("REEF3D completed but no free-surface frames were converted")
+            if frame_count < prepared.output_frames:
+                raise RuntimeError(f"REEF3D completed with {frame_count} converted frames; expected {prepared.output_frames}")
             self._update(run_id, status="complete", phase="complete", progress=1.0, completed_at=time.time())
         except Exception as exc:  # noqa: BLE001
             self._update_logs_tail(run_id)
@@ -177,22 +207,30 @@ class JobManager:
             with self._lock:
                 self._processes.pop(run_id, None)
 
-    def _reef3d_args(self, mpi_ranks: int) -> list[str]:
+    def _reef3d_args(self, mpi_ranks: int, input_mode: str = "celeris_files") -> list[str]:
         if not REEF3D_BIN.exists():
             raise FileNotFoundError(REEF3D_BIN)
-        if mpi_ranks > 1:
-            mpiexec = shutil.which("mpiexec") or r"C:\Program Files\Microsoft MPI\Bin\mpiexec.exe"
-            if not Path(mpiexec).exists():
-                raise FileNotFoundError(mpiexec)
-            return [mpiexec, "-n", str(mpi_ranks), str(REEF3D_BIN)]
-        return [str(REEF3D_BIN)]
+        if mpi_ranks < 1:
+            raise ValueError("mpi_ranks must be at least 1")
+        if mpi_ranks == 1 and input_mode == "celeris_files":
+            return [str(REEF3D_BIN)]
+        return [_find_mpiexec(), "-n", str(mpi_ranks), str(REEF3D_BIN)]
 
     def _run_process(self, run_id: str, args: list[str], cwd: Path, name: str, *, timeout: int) -> None:
         if not Path(args[0]).exists():
             raise FileNotFoundError(args[0])
         log_dir = mkdir_rece(CUSTOM_LOG_ROOT / run_id)
         creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        proc = subprocess.run(args, cwd=cwd, text=True, capture_output=True, timeout=timeout, check=False, creationflags=creationflags)
+        proc = subprocess.run(
+            args,
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+            creationflags=creationflags,
+            env=_external_solver_env(),
+        )
         write_text_rece(log_dir / f"{name}_stdout.log", proc.stdout)
         write_text_rece(log_dir / f"{name}_stderr.log", proc.stderr)
         self._update_logs_tail(run_id)
@@ -206,6 +244,7 @@ class JobManager:
         if not files:
             self._write_empty_manifest(prepared, complete=complete)
             return
+        files = files[: prepared.output_frames]
         existing = int((self.get_job(prepared.run_id) or {}).get("frame_count", 0))
         if not complete and len(files) <= existing:
             return
@@ -226,7 +265,7 @@ class JobManager:
                     complete=complete and count == len(files),
                 )
                 frame_count = int(manifest["stats"]["frame_count"])
-                progress = min(0.95, 0.15 + 0.8 * max(frame_count, 1) / max(frame_count, 5))
+                progress = min(0.95, 0.15 + 0.8 * max(frame_count, 1) / max(prepared.output_frames, 1))
                 self._update(
                     prepared.run_id,
                     phase="converting" if not complete else "finalizing",
@@ -313,6 +352,14 @@ class JobManager:
     def frame_path(self, run_id: str, name: str) -> Path | None:
         job = self.get_job(run_id)
         if job is None:
+            return None
+        if "\x00" in name or "\\" in name:
+            return None
+        name = name.lstrip("/")
+        if name.startswith("frames/"):
+            name = name[len("frames/") :]
+        parts = name.split("/")
+        if any(part in {"", ".", ".."} for part in parts) or ":" in name:
             return None
         path = ensure_rece_write(Path(str(job["run_dir"])) / "frames" / name)
         frames = (Path(str(job["run_dir"])) / "frames").resolve()

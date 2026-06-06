@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import ctypes
 import os
-import shutil
 import socket
 import sys
 import threading
@@ -16,7 +15,7 @@ if "--package-mode" in sys.argv:
     os.environ.setdefault("RECE_RUNTIME_MODE", "package")
 
 from .jobs import MANAGER  # noqa: E402
-from .paths import DIVEMESH_BIN, PACKAGE_MODE, RECE_ROOT, REEF3D_BIN, RESOURCE_ROOT, WEB_ROOT, runtime_info  # noqa: E402
+from .paths import DIVEMESH_BIN, PACKAGE_MODE, PLATFORM, RECE_ROOT, REEF3D_BIN, RESOURCE_ROOT, WEB_ROOT, find_mpiexec, runtime_info  # noqa: E402
 from .server import RECEHandler  # noqa: E402
 
 
@@ -63,19 +62,42 @@ def detect_webview2_runtime() -> bool:
     return any(path.exists() for path in candidates)
 
 
+def detect_linux_webview_runtime() -> bool:
+    if not sys.platform.startswith("linux"):
+        return True
+    try:
+        import gi
+
+        gi.require_version("Gtk", "3.0")
+        try:
+            gi.require_version("WebKit2", "4.1")
+        except (ImportError, ValueError):
+            gi.require_version("WebKit2", "4.0")
+        from gi.repository import Gtk, WebKit2  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
 def dependency_report() -> tuple[list[str], list[str]]:
     fatal: list[str] = []
     warnings: list[str] = []
     if not detect_webview2_runtime():
         fatal.append("Microsoft Edge WebView2 Runtime is not installed.")
+    if not detect_linux_webview_runtime():
+        fatal.append("GTK/WebKitGTK runtime is not available. Install the Ubuntu GTK/WebKit dependencies for RECE.")
     if not WEB_ROOT.exists():
         fatal.append(f"Web UI resources were not found: {WEB_ROOT}")
     if not REEF3D_BIN.exists():
         fatal.append(f"REEF3D executable was not found: {REEF3D_BIN}")
     if not DIVEMESH_BIN.exists():
         fatal.append(f"DIVEMesh executable was not found: {DIVEMESH_BIN}")
-    if not (shutil.which("mpiexec") or Path(r"C:\Program Files\Microsoft MPI\Bin\mpiexec.exe").exists()):
-        warnings.append("Microsoft MPI was not found. Celeris upload mode can open, but REEF3D MPI jobs need MS-MPI.")
+    if find_mpiexec() is None:
+        if os.name == "nt":
+            warnings.append("Microsoft MPI was not found. Celeris upload mode can open, but REEF3D MPI jobs need MS-MPI.")
+        else:
+            warnings.append("OpenMPI mpiexec was not found. Celeris upload mode can open, but REEF3D MPI jobs need OpenMPI.")
     if PACKAGE_MODE:
         RECE_ROOT.mkdir(parents=True, exist_ok=True)
     return fatal, warnings
@@ -110,7 +132,10 @@ def run_window(url: str, *, debug: bool) -> None:
     if debug:
         webview.settings["REMOTE_DEBUGGING_PORT"] = 9333
 
-    icon_path = RESOURCE_ROOT / "web" / "favicon.ico"
+    if PLATFORM == "linux":
+        icon_path = RESOURCE_ROOT / "web" / "assets" / "rece-app-icon.png"
+    else:
+        icon_path = RESOURCE_ROOT / "web" / "favicon.ico"
     storage_path = RECE_ROOT / "webview_profile"
     storage_path.mkdir(parents=True, exist_ok=True)
     webview.create_window(
@@ -122,8 +147,9 @@ def run_window(url: str, *, debug: bool) -> None:
         background_color="#07111f",
         text_select=True,
     )
+    gui = "edgechromium" if os.name == "nt" else "gtk" if sys.platform.startswith("linux") else None
     webview.start(
-        gui="edgechromium",
+        gui=gui,
         debug=debug,
         private_mode=False,
         storage_path=str(storage_path),

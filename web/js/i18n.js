@@ -51,6 +51,12 @@ const MESSAGES = {
   'rece.runner.cancelStatus': { en: 'REEF3D {status}: {phase}', cn: 'REEF3D {status}：{phase}' },
   'rece.runner.cancelError': { en: 'Cancel error: {error}', cn: '取消错误：{error}' },
   'rece.runner.startError': { en: 'REEF3D start error: {error}', cn: 'REEF3D 启动错误：{error}' },
+  'rece.runner.invalidParam': { en: '{field}: {rule}', cn: '{field}：{rule}' },
+  'rece.runner.ruleRequired': { en: 'enter a value', cn: '请输入数值' },
+  'rece.runner.ruleNumber': { en: 'enter a finite number', cn: '请输入有限数字' },
+  'rece.runner.ruleInteger': { en: 'enter an integer', cn: '请输入整数' },
+  'rece.runner.ruleMin': { en: 'must be at least {min}', cn: '必须大于或等于 {min}' },
+  'rece.runner.ruleRange': { en: 'must be between {min} and {max}', cn: '必须在 {min} 到 {max} 之间' },
 };
 
 const EXACT_CN = {

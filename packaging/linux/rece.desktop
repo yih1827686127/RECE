@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RECE
+Comment=RECE ocean fluid simulation interface
+Exec=/usr/bin/rece
+Icon=rece
+Terminal=false
+Categories=Science;Education;
+StartupWMClass=RECE

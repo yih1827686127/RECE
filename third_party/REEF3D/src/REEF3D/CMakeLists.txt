@@ -1,9 +1,19 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(REEF3D_Windows LANGUAGES CXX)
+project(REEF3D LANGUAGES CXX)
 
 get_filename_component(REEF3D_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
-set(HYPRE_ROOT "${REEF3D_ROOT}/build/hypre-install" CACHE PATH "Path to a Hypre install tree")
+if(WIN32)
+  set(HYPRE_ROOT "${REEF3D_ROOT}/build/hypre-install" CACHE PATH "Path to a Hypre install tree")
+else()
+  set(HYPRE_ROOT "/usr" CACHE PATH "Path to a Hypre install tree")
+endif()
+
+if(WIN32)
+  set(REEF3D_BINARY_OUTPUT_DIR "${REEF3D_ROOT}/bin")
+else()
+  set(REEF3D_BINARY_OUTPUT_DIR "${REEF3D_ROOT}/bin/linux-x86_64")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,9 +21,9 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 foreach(_config DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
   string(TOUPPER "${_config}" _config_upper)
-  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_config_upper} "${REEF3D_ROOT}/bin")
+  set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${_config_upper} "${REEF3D_BINARY_OUTPUT_DIR}")
 endforeach()
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${REEF3D_ROOT}/bin")
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${REEF3D_BINARY_OUTPUT_DIR}")
 
 execute_process(
   COMMAND git rev-parse --abbrev-ref HEAD
@@ -57,7 +67,11 @@ if(NOT MPI_CXX_FOUND AND WIN32 AND EXISTS "${_MSMPI_INC}/mpi.h" AND EXISTS "${_M
 endif()
 
 if(NOT MPI_CXX_FOUND)
-  message(FATAL_ERROR "MPI C++ was not found. Install MS-MPI runtime and SDK, or set MPI_CXX include/library cache variables.")
+  if(WIN32)
+    message(FATAL_ERROR "MPI C++ was not found. Install MS-MPI runtime and SDK, or set MPI_CXX include/library cache variables.")
+  else()
+    message(FATAL_ERROR "MPI C++ was not found. Install OpenMPI development packages, or set MPI_CXX include/library cache variables.")
+  endif()
 endif()
 
 set(REEF3D_MPI_INCLUDE_DIRS ${MPI_CXX_INCLUDE_DIRS})
@@ -67,9 +81,35 @@ if(WIN32 AND EXISTS "${_MSMPI_INC}/mpi.h" AND EXISTS "${_MSMPI_LIB}")
   list(APPEND REEF3D_MPI_LIBRARIES "${_MSMPI_LIB}")
 endif()
 
-set(HYPRE_INCLUDE_DIR "${HYPRE_ROOT}/include")
-set(HYPRE_LIBRARY "${HYPRE_ROOT}/lib/HYPRE.lib")
-if(NOT EXISTS "${HYPRE_INCLUDE_DIR}/HYPRE.h" OR NOT EXISTS "${HYPRE_LIBRARY}")
+find_path(HYPRE_INCLUDE_DIR
+  NAMES HYPRE.h
+  PATHS
+    "${HYPRE_ROOT}/include"
+    "${HYPRE_ROOT}/include/hypre"
+    "/usr/include"
+    "/usr/include/hypre"
+    "/usr/local/include"
+    "/usr/local/include/hypre"
+  NO_DEFAULT_PATH
+)
+if(NOT HYPRE_INCLUDE_DIR)
+  find_path(HYPRE_INCLUDE_DIR NAMES HYPRE.h PATH_SUFFIXES hypre)
+endif()
+
+find_library(HYPRE_LIBRARY
+  NAMES HYPRE hypre
+  PATHS
+    "${HYPRE_ROOT}/lib"
+    "${HYPRE_ROOT}/lib64"
+    "/usr/lib/x86_64-linux-gnu"
+    "/usr/local/lib"
+  NO_DEFAULT_PATH
+)
+if(NOT HYPRE_LIBRARY)
+  find_library(HYPRE_LIBRARY NAMES HYPRE hypre)
+endif()
+
+if(NOT HYPRE_INCLUDE_DIR OR NOT HYPRE_LIBRARY)
   message(FATAL_ERROR "Hypre was not found at ${HYPRE_ROOT}. Build/install Hypre first, or pass -DHYPRE_ROOT=<path>.")
 endif()
 
@@ -101,11 +141,11 @@ else()
 endif()
 
 set_target_properties(reef3d PROPERTIES
-  RUNTIME_OUTPUT_DIRECTORY "${REEF3D_ROOT}/bin"
-  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${REEF3D_ROOT}/bin"
-  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${REEF3D_ROOT}/bin"
-  RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${REEF3D_ROOT}/bin"
-  RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${REEF3D_ROOT}/bin"
+  RUNTIME_OUTPUT_DIRECTORY "${REEF3D_BINARY_OUTPUT_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG "${REEF3D_BINARY_OUTPUT_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE "${REEF3D_BINARY_OUTPUT_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${REEF3D_BINARY_OUTPUT_DIR}"
+  RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${REEF3D_BINARY_OUTPUT_DIR}"
 )
 
 set(DIVEMESH_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../DIVEMesh")

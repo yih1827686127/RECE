@@ -259,14 +259,14 @@ Write-Host "Staging REEF3D and DIVEMesh runtime binaries"
 Copy-Directory (Join-Path $Root "third_party\REEF3D\bin") (Join-Path $ThirdPartyStage "REEF3D\bin")
 
 Write-Host "Staging licenses and documentation"
-foreach ($file in @("LICENSE", "THIRD_PARTY_NOTICES.md", "SOURCE_MANIFEST.json", "README.md", "README_RECE.md", "requirements.txt", "environment.yml")) {
+foreach ($file in @("AGENTS.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "SOURCE_MANIFEST.json", "README.md", "README_RECE.md", "requirements.txt", "environment.yml")) {
     Copy-File (Join-Path $Root $file) $LicensesStage
 }
 
 Write-Host "Creating corresponding source archive without example data"
 Remove-Tree $SourceStage $Root
 New-Item -ItemType Directory -Force -Path $SourceStage | Out-Null
-foreach ($file in @("LICENSE", "THIRD_PARTY_NOTICES.md", "SOURCE_MANIFEST.json", "README.md", "README_RECE.md", "requirements.txt", "environment.yml")) {
+foreach ($file in @("AGENTS.md", "LICENSE", "THIRD_PARTY_NOTICES.md", "SOURCE_MANIFEST.json", "README.md", "README_RECE.md", "requirements.txt", "environment.yml")) {
     Copy-File (Join-Path $Root $file) $SourceStage
 }
 foreach ($dir in @("art", "rece", "tests", "automation", "packaging")) {
@@ -327,6 +327,10 @@ if (-not $SkipInnoBuild) {
     if (-not (Test-Path (Join-Path $InstallerOut "RECE_Setup.exe"))) {
         throw "RECE_Setup.exe was not produced"
     }
+    $installerPath = Join-Path $InstallerOut "RECE_Setup.exe"
+    $installerHash = (Get-FileHash -Algorithm SHA256 -Path $installerPath).Hash
+    Set-Content -LiteralPath (Join-Path $InstallerOut "RECE_Setup.exe.sha256") -Value "$installerHash *RECE_Setup.exe" -Encoding ASCII
+    Write-Host "Installer SHA256: $installerHash"
 }
 
 Write-Host "Build complete"

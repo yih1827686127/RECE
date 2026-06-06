@@ -13,7 +13,6 @@ from urllib.parse import unquote, urlparse
 
 from .jobs import MANAGER
 from .paths import HK_SCENARIO, PACKAGE_MODE, SCENARIOS_ROOT, TMP_ROOT, WEB_ROOT, ensure_rece_write, is_under, mkdir_rece, runtime_info
-from .workflow import run_workflow
 
 
 RUNS: dict[str, dict[str, object]] = {}
@@ -102,6 +101,8 @@ def _parse_multipart(handler: BaseHTTPRequestHandler) -> tuple[dict[str, str], d
 
 
 def _run_background(run_id: str, mpi_ranks: int) -> None:
+    from .workflow import run_workflow
+
     RUNS[run_id].update({"status": "running", "started_at": time.time()})
     try:
         result = run_workflow(mpi_ranks=mpi_ranks)

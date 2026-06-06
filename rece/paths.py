@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import platform
+import shutil
 import sys
 from pathlib import Path
 
@@ -22,18 +24,38 @@ def _runtime_mode() -> str:
     return "package" if _is_frozen() else "development"
 
 
+def _platform_key() -> str:
+    if os.name == "nt":
+        return "windows"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    if sys.platform == "darwin":
+        return "macos"
+    return sys.platform
+
+
 def _user_data_root() -> Path:
     explicit = os.environ.get("RECE_USER_DATA_DIR", "").strip()
     if explicit:
         return Path(explicit).resolve()
-    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
-    if base:
-        return (Path(base) / "RECE").resolve()
-    return (Path.home() / "AppData" / "Local" / "RECE").resolve()
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
+        if base:
+            return (Path(base) / "RECE").resolve()
+        return (Path.home() / "AppData" / "Local" / "RECE").resolve()
+    if sys.platform.startswith("linux"):
+        base = os.environ.get("XDG_DATA_HOME")
+        if base:
+            return (Path(base) / "RECE").resolve()
+        return (Path.home() / ".local" / "share" / "RECE").resolve()
+    if sys.platform == "darwin":
+        return (Path.home() / "Library" / "Application Support" / "RECE").resolve()
+    return (Path.home() / ".rece").resolve()
 
 
 RESOURCE_ROOT = _resource_root()
 RUNTIME_MODE = _runtime_mode()
+PLATFORM = _platform_key()
 PACKAGE_MODE = RUNTIME_MODE in {"package", "runtime", "installed", "frozen"}
 RECE_ROOT = _user_data_root() if PACKAGE_MODE else RESOURCE_ROOT
 AAA_ROOT = RESOURCE_ROOT.parent
@@ -44,9 +66,57 @@ LOG_ROOT = RECE_ROOT / "logs"
 TMP_ROOT = RECE_ROOT / "tmp"
 THIRD_PARTY_ROOT = RESOURCE_ROOT / "third_party"
 REEF3D_ROOT = THIRD_PARTY_ROOT / "REEF3D"
-REEF3D_BIN = REEF3D_ROOT / "bin" / "reef3d.exe"
-DIVEMESH_BIN = REEF3D_ROOT / "bin" / "DiveMESH.exe"
 HK_SCENARIO = "hk_victoria_smoke"
+
+
+def _solver_bin_dir() -> Path:
+    explicit = os.environ.get("RECE_SOLVER_BIN_DIR", "").strip()
+    if explicit:
+        return Path(explicit).resolve()
+    default = REEF3D_ROOT / "bin"
+    if sys.platform.startswith("linux"):
+        platform_dir = default / "linux-x86_64"
+        return platform_dir if platform_dir.exists() else default
+    return default
+
+
+def _solver_binary(env_name: str, default_name: str) -> Path:
+    explicit = os.environ.get(env_name, "").strip()
+    if explicit:
+        return Path(explicit).resolve()
+    return (_solver_bin_dir() / default_name).resolve()
+
+
+def _windows_mpiexec_fallback() -> Path:
+    return Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Microsoft MPI" / "Bin" / "mpiexec.exe"
+
+
+def find_mpiexec() -> Path | None:
+    explicit = os.environ.get("RECE_MPIEXEC", "").strip()
+    if explicit:
+        path = Path(explicit).resolve()
+        return path if path.exists() else None
+    found = shutil.which("mpiexec")
+    if found:
+        return Path(found).resolve()
+    if os.name == "nt":
+        fallback = _windows_mpiexec_fallback()
+        if fallback.exists():
+            return fallback.resolve()
+    return None
+
+
+def require_mpiexec() -> str:
+    mpiexec = find_mpiexec()
+    if mpiexec is not None:
+        return str(mpiexec)
+    if os.name == "nt":
+        raise FileNotFoundError("Microsoft MPI mpiexec.exe was not found. Install Microsoft MPI Runtime and restart RECE.")
+    raise FileNotFoundError("mpiexec was not found. Install OpenMPI on Ubuntu and restart RECE.")
+
+
+REEF3D_BIN = _solver_binary("RECE_REEF3D_BIN", "reef3d.exe" if os.name == "nt" else "reef3d")
+DIVEMESH_BIN = _solver_binary("RECE_DIVEMESH_BIN", "DiveMESH.exe" if os.name == "nt" else "DiveMESH")
 
 
 def is_under(path: Path, root: Path) -> bool:
@@ -105,13 +175,21 @@ def rel_to_rece(path: Path | str) -> str:
 
 
 def runtime_info() -> dict[str, object]:
+    mpiexec = find_mpiexec()
     return {
+        "platform": PLATFORM,
+        "system": platform.system(),
         "runtime_mode": RUNTIME_MODE,
         "package_mode": PACKAGE_MODE,
         "resource_root": str(RESOURCE_ROOT),
         "user_data_root": str(RECE_ROOT),
         "web_root": str(WEB_ROOT),
         "examples_available": (WEB_ROOT / "examples").exists(),
+        "solver_bin_dir": str(_solver_bin_dir()),
+        "reef3d_bin": str(REEF3D_BIN),
         "reef3d_bin_exists": REEF3D_BIN.exists(),
+        "divemesh_bin": str(DIVEMESH_BIN),
         "divemesh_bin_exists": DIVEMESH_BIN.exists(),
+        "mpiexec": str(mpiexec) if mpiexec is not None else "",
+        "mpiexec_exists": mpiexec is not None,
     }

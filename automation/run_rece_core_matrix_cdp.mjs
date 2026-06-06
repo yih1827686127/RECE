@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const RECE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const BUILD_PYTHON_WINDOWS = path.resolve(RECE_ROOT, "..", "tools", "rece-build-venv", "Scripts", "python.exe");
+const BUILD_PYTHON_POSIX = path.resolve(RECE_ROOT, "..", "tools", "rece-build-venv", "bin", "python");
 const PROFILE_DIR_BASE = path.join(RECE_ROOT, "tmp", "chrome_profile_rece_core_cdp");
 const SCREENSHOT_DIR = path.join(RECE_ROOT, "examples", "hk_victoria_smoke", "screenshots", "core_matrix");
 const DOWNLOAD_DIR = path.join(RECE_ROOT, "examples", "hk_victoria_smoke", "browser_downloads");
@@ -53,10 +55,24 @@ const CHROME_CANDIDATES = [
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/snap/bin/chromium",
+  "/usr/bin/microsoft-edge",
+  "/usr/bin/microsoft-edge-stable",
 ].filter(Boolean);
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function recePython() {
+  if (process.env.RECE_PYTHON) return process.env.RECE_PYTHON;
+  if (existsSync(BUILD_PYTHON_WINDOWS)) return BUILD_PYTHON_WINDOWS;
+  if (existsSync(BUILD_PYTHON_POSIX)) return BUILD_PYTHON_POSIX;
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 async function isPortFree(port) {
@@ -115,7 +131,8 @@ async function ensureReceServer() {
   const stdoutPath = path.join(RECE_ROOT, "logs", `server_${port}_core_stdout.log`);
   const stderrPath = path.join(RECE_ROOT, "logs", `server_${port}_core_stderr.log`);
   await fs.mkdir(path.dirname(stdoutPath), { recursive: true });
-  const server = spawn("python", ["-m", "rece.server", "--host", host, "--port", String(port)], {
+  const pythonPath = recePython();
+  const server = spawn(pythonPath, ["-m", "rece.server", "--host", host, "--port", String(port)], {
     cwd: RECE_ROOT,
     detached: false,
     stdio: ["ignore", "pipe", "pipe"],
@@ -126,7 +143,7 @@ async function ensureReceServer() {
   if (!(await waitForUrlOk(healthUrl))) {
     throw new Error(`RECE server did not become reachable at ${healthUrl}`);
   }
-  return { url: app.toString(), process: server, started: true, healthUrl, stdoutPath, stderrPath };
+  return { url: app.toString(), process: server, started: true, healthUrl, stdoutPath, stderrPath, pythonPath };
 }
 
 function findChrome() {
@@ -147,6 +164,16 @@ async function fetchJson(url, timeoutMs = 5000) {
       throw new Error(`${url} returned ${response.status}`);
     }
     return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
   }
@@ -187,11 +214,12 @@ class CdpClient {
         reject(new Error("WebSocket error"));
       }, { once: true });
     });
-    this.ws.addEventListener("message", (event) => {
-      const message = JSON.parse(event.data);
+    this.ws.addEventListener("message", async (event) => {
+      const message = JSON.parse(await decodeWsData(event.data));
       if (message.id && this.pending.has(message.id)) {
-        const { resolve, reject } = this.pending.get(message.id);
+        const { resolve, reject, timer } = this.pending.get(message.id);
         this.pending.delete(message.id);
+        clearTimeout(timer);
         if (message.error) {
           reject(new Error(`${message.error.message}: ${message.error.data || ""}`));
         } else {
@@ -209,7 +237,11 @@ class CdpClient {
     const id = this.nextId;
     this.nextId += 1;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`CDP command timed out: ${method}`));
+      }, 15000);
+      this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -217,6 +249,14 @@ class CdpClient {
   close() {
     this.ws?.close();
   }
+}
+
+async function decodeWsData(data) {
+  if (typeof data === "string") return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8");
+  if (data && typeof data.text === "function") return await data.text();
+  return String(data);
 }
 
 async function runtimeValue(client, expression) {
@@ -338,6 +378,167 @@ async function getPageState(client) {
       disabledControls,
     };
   })()`);
+}
+
+async function getLayoutState(client) {
+  return runtimeValue(client, `(() => {
+    const rectObject = (rect) => ({
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      width: rect.width,
+      height: rect.height,
+    });
+    const main = document.getElementById('main-container');
+    const horizontal = document.getElementById('horizontalbar');
+    const vertical = document.getElementById('verticalbar');
+    const consolebar = document.getElementById('consolebar');
+    const directHeaders = [...vertical.querySelectorAll(':scope > .window-header')];
+    const panelForHeader = (key, header) => {
+      const span = header?.querySelector('span');
+      const content = key === 'console' ? consolebar?.querySelector('#log-container') : header?.nextElementSibling;
+      const style = span ? getComputedStyle(span) : null;
+      return {
+        key,
+        title: span?.innerText?.trim().replace(/\\s+/g, ' ') || '',
+        headerRect: header ? rectObject(header.getBoundingClientRect()) : null,
+        contentRect: content ? rectObject(content.getBoundingClientRect()) : null,
+        fontSize: style ? Number.parseFloat(style.fontSize) : null,
+        display: content ? getComputedStyle(content).display : '',
+      };
+    };
+    const panels = [
+      panelForHeader('simulation', directHeaders[0]),
+      panelForHeader('timeSeries', directHeaders[1]),
+      panelForHeader('parameters', directHeaders[2]),
+      panelForHeader('console', consolebar?.querySelector('.window-header')),
+    ];
+    const orderKeys = [];
+    for (const child of [...vertical.children]) {
+      if (child.classList?.contains('window-header')) {
+        const next = child.nextElementSibling;
+        if (next?.querySelector('#webgpuCanvas')) orderKeys.push('simulation');
+        else if (next?.querySelector('#timeseriesChart')) orderKeys.push('timeSeries');
+        else if (next?.id === 'constants-container') orderKeys.push('parameters');
+      } else if (child.id === 'consolebar') {
+        orderKeys.push('console');
+      }
+    }
+    const gridColumns = getComputedStyle(main).gridTemplateColumns
+      .split(' ')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return {
+      viewportWidth: window.innerWidth,
+      mainGridColumnCount: gridColumns.length,
+      mainRect: rectObject(main.getBoundingClientRect()),
+      horizontalRect: rectObject(horizontal.getBoundingClientRect()),
+      verticalRect: rectObject(vertical.getBoundingClientRect()),
+      consoleRect: rectObject(consolebar.getBoundingClientRect()),
+      consoleParentId: consolebar?.parentElement?.id || '',
+      orderKeys,
+      panels,
+    };
+  })()`);
+}
+
+function evaluateLayoutState(layout) {
+  const issues = [];
+  const expectedOrder = ["simulation", "timeSeries", "parameters", "console"];
+  if (layout.consoleParentId !== "verticalbar") {
+    issues.push(`console parent is ${layout.consoleParentId || "missing"}`);
+  }
+  if (JSON.stringify(layout.orderKeys) !== JSON.stringify(expectedOrder)) {
+    issues.push(`panel order is ${layout.orderKeys.join(",")}`);
+  }
+  const expectedColumns = layout.viewportWidth <= 840 ? 1 : 2;
+  if (layout.mainGridColumnCount !== expectedColumns) {
+    issues.push(`main grid has ${layout.mainGridColumnCount} columns, expected ${expectedColumns}`);
+  }
+  if (layout.viewportWidth > 840 && layout.consoleRect.right > layout.verticalRect.right + 2) {
+    issues.push("console extends outside the simulation column");
+  }
+  if (layout.viewportWidth > 840 && layout.verticalRect.width < layout.horizontalRect.width * 1.7) {
+    issues.push(`simulation column is not using released width (${layout.verticalRect.width} vs ${layout.horizontalRect.width})`);
+  }
+
+  const headerWidths = layout.panels.map((panel) => panel.headerRect?.width || 0);
+  const nonzeroWidths = headerWidths.filter((width) => width > 0);
+  const widthSpread = Math.max(...nonzeroWidths) - Math.min(...nonzeroWidths);
+  if (nonzeroWidths.length !== 4 || widthSpread > 3) {
+    issues.push(`panel header widths differ: ${headerWidths.join(", ")}`);
+  }
+
+  const fontSizes = layout.panels.map((panel) => panel.fontSize || 0);
+  const fontSpread = Math.max(...fontSizes) - Math.min(...fontSizes);
+  if (fontSizes.some((size) => size < 14 || size > 15.5) || fontSpread > 0.5) {
+    issues.push(`panel title font sizes are not compact and equal: ${fontSizes.join(", ")}`);
+  }
+
+  const headerHeights = layout.panels.map((panel) => panel.headerRect?.height || 0);
+  const heightSpread = Math.max(...headerHeights) - Math.min(...headerHeights);
+  if (headerHeights.some((height) => height < 28 || height > 42) || heightSpread > 3) {
+    issues.push(`panel header heights are not compact and equal: ${headerHeights.join(", ")}`);
+  }
+
+  return { passed: issues.length === 0, issues, layout };
+}
+
+async function checkLayout(client) {
+  return evaluateLayoutState(await getLayoutState(client));
+}
+
+async function checkTooltipBounds(client) {
+  const points = await runtimeValue(client, `(() => {
+    const canvas = document.getElementById('webgpuCanvas');
+    canvas.scrollIntoView({ block: 'center', inline: 'center' });
+    const rect = canvas.getBoundingClientRect();
+    const y = Math.round(rect.top + rect.height * 0.48);
+    return [
+      { name: 'left', x: Math.round(rect.left + 3), y },
+      { name: 'center', x: Math.round(rect.left + rect.width * 0.5), y },
+      { name: 'right', x: Math.round(rect.right - 3), y },
+    ];
+  })()`);
+  await sleep(300);
+  const checks = [];
+  for (const point of points) {
+    await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+    await sleep(220);
+    checks.push(await runtimeValue(client, `(() => {
+      const canvas = document.getElementById('webgpuCanvas');
+      const tooltip = document.getElementById('tooltip');
+      const host = canvas.closest('.window-content');
+      const rectObject = (rect) => ({
+        left: rect.left,
+        top: rect.top,
+        right: rect.right,
+        bottom: rect.bottom,
+        width: rect.width,
+        height: rect.height,
+      });
+      const tooltipRect = tooltip.getBoundingClientRect();
+      const hostRect = host.getBoundingClientRect();
+      const style = getComputedStyle(tooltip);
+      return {
+        name: ${JSON.stringify(point.name)},
+        display: style.display,
+        tooltipRect: rectObject(tooltipRect),
+        hostRect: rectObject(hostRect),
+        inside: style.display !== 'none'
+          && tooltipRect.width > 0
+          && tooltipRect.height > 0
+          && tooltipRect.left >= hostRect.left - 1
+          && tooltipRect.right <= hostRect.right + 1
+          && tooltipRect.top >= hostRect.top - 1
+          && tooltipRect.bottom <= hostRect.bottom + 1,
+      };
+    })()`));
+  }
+  await client.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 2, y: 2 });
+  const failed = checks.filter((check) => !check.inside);
+  return { passed: failed.length === 0, checks, failed };
 }
 
 function statePasses(state) {
@@ -504,6 +705,7 @@ async function main() {
   const chromePath = findChrome();
   const chromeArgs = [
     `--remote-debugging-port=${cdpPort}`,
+    "--remote-allow-origins=*",
     `--user-data-dir=${profileDir}`,
     "--no-first-run",
     "--no-default-browser-check",
@@ -528,11 +730,17 @@ async function main() {
   let client;
   try {
     const version = await waitForJson(`http://${DEBUG_HOST}:${cdpPort}/json/version`);
-    let targets = await waitForJson(`http://${DEBUG_HOST}:${cdpPort}/json`);
-    let pageTarget = targets.find((target) => target.type === "page");
-    if (!pageTarget) {
-      await fetch(`http://${DEBUG_HOST}:${cdpPort}/json/new?about:blank`, { method: "PUT" });
-      targets = await waitForJson(`http://${DEBUG_HOST}:${cdpPort}/json`);
+    let pageTarget;
+    try {
+      const created = await fetchWithTimeout(`http://${DEBUG_HOST}:${cdpPort}/json/new?about:blank`, { method: "PUT" });
+      if (created.ok) {
+        pageTarget = await created.json();
+      }
+    } catch {
+      // Fall back to the initial browser page below.
+    }
+    if (!pageTarget?.webSocketDebuggerUrl) {
+      const targets = await waitForJson(`http://${DEBUG_HOST}:${cdpPort}/json`);
       pageTarget = targets.find((target) => target.type === "page");
     }
     if (!pageTarget?.webSocketDebuggerUrl) {
@@ -588,6 +796,10 @@ async function main() {
     if (!statePasses(initialState)) {
       throw new Error(`RECE external frame simulation did not start: ${JSON.stringify(initialState)}`);
     }
+    const layoutCheck = await checkLayout(client);
+    console.log(`${layoutCheck.passed ? "PASS" : "FAIL"} layout_geometry`);
+    const tooltipCheck = await checkTooltipBounds(client);
+    console.log(`${tooltipCheck.passed ? "PASS" : "FAIL"} tooltip_bounds`);
 
     let index = 1;
     let pausedText = "";
@@ -754,6 +966,8 @@ async function main() {
     const report = {
       passed: results.every((result) => result.passed)
         && downloadResults.every((result) => result.passed)
+        && layoutCheck.passed
+        && tooltipCheck.passed
         && unexpectedErrors.length === 0,
       appUrl: serverInfo.url,
       serverInfo: {
@@ -770,6 +984,8 @@ async function main() {
       downloadDir: DOWNLOAD_DIR,
       pageBefore,
       initialState,
+      layoutCheck,
+      tooltipCheck,
       externalManifestLoaded: logs.some((entry) => /Loaded REEF3D external frame manifest/i.test(entry.text)),
       externalModeActive: logs.some((entry) => /external REEF3D solver mode is active/i.test(entry.text)),
       scenarios: results,

@@ -1,0 +1,144 @@
+name: RECE Linux packaged release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*-linux"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rece-linux-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-24.04
+    env:
+      RECE_LINUX_PYTHON: ${{ github.workspace }}/../tools/rece-build-venv/bin/python
+      RECE_PYTHON: ${{ github.workspace }}/../tools/rece-build-venv/bin/python
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Ubuntu dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            dpkg-dev \
+            gfortran \
+            gir1.2-gtk-3.0 \
+            gir1.2-webkit2-4.1 \
+            libgtk-3-0 \
+            libhypre-dev \
+            libopenmpi-dev \
+            libwebkit2gtk-4.1-0 \
+            nodejs \
+            npm \
+            openmpi-bin \
+            python3-gi \
+            python3-gi-cairo \
+            python3-pip \
+            python3.12-venv \
+            xvfb
+
+      - name: Prepare Python environment
+        run: |
+          mkdir -p ../tools
+          python3.12 -m venv --system-site-packages ../tools/rece-build-venv
+          "$RECE_LINUX_PYTHON" -m pip install --upgrade pip wheel setuptools
+          "$RECE_LINUX_PYTHON" -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
+          "$RECE_LINUX_PYTHON" -m pip install -r requirements.txt
+          "$RECE_LINUX_PYTHON" - <<'PY'
+          import gi
+          gi.require_version("Gtk", "3.0")
+          gi.require_version("WebKit2", "4.1")
+          from gi.repository import Gtk, WebKit2
+          print("GTK/WebKitGTK available")
+          PY
+
+      - name: Set up Chrome
+        id: setup-chrome
+        uses: browser-actions/setup-chrome@v1
+
+      - name: JavaScript syntax checks
+        run: |
+          node --check web/js/main.js
+          node --check web/js/i18n.js
+          node --check web/js/Model_Loaders.js
+          node --check web/js/rece_runtime_mode.js
+          node --check automation/run_rece_packaged_runtime_cdp.mjs
+          node --check automation/run_rece_solver_modes_cdp.mjs
+          node --check automation/run_rece_core_matrix_cdp.mjs
+
+      - name: Build Linux packages
+        run: bash packaging/linux/build_linux_package.sh
+
+      - name: Python unit tests
+        run: "$RECE_LINUX_PYTHON" -m unittest tests.test_rece -v
+
+      - name: Linux solver smoke test
+        run: "$RECE_LINUX_PYTHON" automation/run_linux_solver_smoke.py
+
+      - name: Package-mode UI smoke test
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: xvfb-run -a node automation/run_rece_packaged_runtime_cdp.mjs
+
+      - name: Debian package install smoke test
+        run: |
+          sudo apt-get install -y ./dist/linux/rece_0.1.0+linux1_amd64.deb
+          rece --print-runtime
+          test -x /opt/rece/RECE
+          test -f /usr/share/applications/rece.desktop
+          test -f /usr/share/icons/hicolor/256x256/apps/rece.png
+          sudo apt-get remove -y rece
+
+      - name: Upload Linux package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rece-linux-packages
+          path: |
+            dist/linux/RECE-linux-x86_64.tar.gz
+            dist/linux/RECE-linux-x86_64.tar.gz.sha256
+            dist/linux/rece_0.1.0+linux1_amd64.deb
+            dist/linux/rece_0.1.0+linux1_amd64.deb.sha256
+
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          cat > dist/linux/RELEASE_NOTES.md <<'EOF'
+          RECE Linux packaged release for Ubuntu 24.04 LTS amd64.
+
+          Assets:
+          - RECE-linux-x86_64.tar.gz: portable package with install-deps.sh
+          - rece_0.1.0+linux1_amd64.deb: Debian package installer
+          - .sha256 files for integrity checks
+
+          This release is separate from the existing Windows packaged release.
+          EOF
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release edit "$TAG_NAME" --title "RECE Linux packaged release" --notes-file dist/linux/RELEASE_NOTES.md
+            gh release upload "$TAG_NAME" \
+              dist/linux/RECE-linux-x86_64.tar.gz \
+              dist/linux/RECE-linux-x86_64.tar.gz.sha256 \
+              dist/linux/rece_0.1.0+linux1_amd64.deb \
+              dist/linux/rece_0.1.0+linux1_amd64.deb.sha256 \
+              --clobber
+          else
+            gh release create "$TAG_NAME" \
+              dist/linux/RECE-linux-x86_64.tar.gz \
+              dist/linux/RECE-linux-x86_64.tar.gz.sha256 \
+              dist/linux/rece_0.1.0+linux1_amd64.deb \
+              dist/linux/rece_0.1.0+linux1_amd64.deb.sha256 \
+              --title "RECE Linux packaged release" \
+              --notes-file dist/linux/RELEASE_NOTES.md \
+              --verify-tag
+          fi

@@ -2,6 +2,67 @@
 
 最后更新：2026-06-05
 
+## 0E. Ubuntu Linux packaged release, 2026-06-06
+
+This update adds the Ubuntu 24.04 LTS amd64 packaging path without changing the existing Windows release.
+
+- Release tag: `v0.1.0-linux`
+- Release title: `RECE Linux packaged release`
+- Release assets: `RECE-linux-x86_64.tar.gz`, `RECE-linux-x86_64.tar.gz.sha256`, `rece_0.1.0+linux1_amd64.deb`, `rece_0.1.0+linux1_amd64.deb.sha256`
+- Linux runtime: pywebview GTK/WebKitGTK desktop window; writes go to `$XDG_DATA_HOME/RECE` or `~/.local/share/RECE`
+- Linux solver binaries: `third_party/REEF3D/bin/linux-x86_64/reef3d` and `DiveMESH`, with `RECE_REEF3D_BIN`, `RECE_DIVEMESH_BIN`, and `RECE_MPIEXEC` overrides
+
+Build entry:
+
+```bash
+bash packaging/linux/build_linux_package.sh
+```
+
+GitHub Actions workflow: `.github/workflows/linux-release.yml`. It installs OpenMPI, HYPRE, GTK/WebKitGTK, Python and Node dependencies on `ubuntu-24.04`, builds Linux solver binaries, builds the portable tarball and `.deb`, runs Python tests, runs a small custom REEF3D solver smoke test, runs package-mode UI CDP, install-tests the `.deb`, and creates or updates the `RECE Linux packaged release` only for `v*-linux` tags. Do not replace or edit the existing `v0.1.0-windows` release.
+
+## 0D. 自定义安装目录热修复, 2026-06-05
+
+本轮修复 `RECE_Setup.exe` 在已有安装记录或默认 Inno Setup 策略下看起来只能固定安装到默认目录的问题。`packaging\RECE_Setup.iss` 现在显式设置 `DisableDirPage=no`，安装向导会始终显示 `Select Destination Location` 页面；用户可以接受默认 `{autopf}\RECE`，也可以点击 Browse 选择自己的安装位置。静默安装仍可通过 `/DIR=...` 指定目标目录。
+
+已新增回归测试 `RECEPackagingTests.test_installer_always_shows_install_directory_page`，直接检查 `packaging\RECE_Setup.iss` 保留 `DefaultDirName={autopf}\RECE` 且 `DisableDirPage=no`，防止后续打包脚本退回自动隐藏目录页。
+
+已重新封装本体和安装包：
+
+```text
+D:\AAA\RECE\dist\RECE\RECE.exe
+D:\AAA\RECE\dist\installer\RECE_Setup.exe
+```
+
+当前本地安装包校验：
+
+```powershell
+Get-FileHash -Algorithm SHA256 D:\AAA\RECE\dist\installer\RECE_Setup.exe
+Get-Content D:\AAA\RECE\dist\installer\RECE_Setup.exe.sha256
+```
+
+`packaging\build_installer.ps1` 会在每次本地重建后写入 `dist\installer\RECE_Setup.exe.sha256`，因此该旁置校验文件是当前安装包的权威 SHA256 来源，避免 README 内写死旧哈希。
+
+安装验证：使用新 `RECE_Setup.exe` 静默安装到自定义目录 `D:\AAA\RECE_test_install_custom`，安装日志确认命令行包含 `/DIR=D:\AAA\RECE_test_install_custom` 且文件写入该目录；已验证安装目录包含 `RECE.exe`、`_internal\scipy\_lib\_ccallback_c.cp312-win_amd64.pyd`、`_internal\web\assets\rece-app.ico`、`rece-panel-logo.png` 和 `hkust-gz-logo.png`。随后启动安装后的 `RECE.exe --port 8794 --debug`，并用 `RECE_URL=http://127.0.0.1:8794/ node automation\run_rece_packaged_runtime_cdp.mjs` 通过 package-mode UI 检查。
+
+本轮验证命令和结果：
+
+```powershell
+& 'D:\AAA\tools\rece-build-venv\Scripts\python.exe' -m unittest tests.test_rece -v
+& 'D:\AAA\tools\rece-build-venv\Scripts\python.exe' -m rece.workflow validate
+node --check automation\run_rece_packaged_runtime_cdp.mjs
+node --check automation\run_rece_solver_modes_cdp.mjs
+node --check automation\run_rece_core_matrix_cdp.mjs
+powershell -ExecutionPolicy Bypass -File packaging\build_installer.ps1
+node automation\run_rece_packaged_runtime_cdp.mjs
+node automation\run_rece_solver_modes_cdp.mjs
+node automation\run_rece_core_matrix_cdp.mjs
+$env:RECE_CDP_WINDOW_SIZE='390,844'; node automation\run_rece_core_matrix_cdp.mjs; Remove-Item Env:\RECE_CDP_WINDOW_SIZE
+```
+
+结果：`D:\AAA\tools\rece-build-venv` 中 Python 单测 `25/25` 通过；`python -m rece.workflow validate` 返回 `status: ok`、`frame_count: 5`、`expected_frame_bytes: 153600`；Celeris 上传小作业 `output_frames=2` 产出 2 帧；native zip 小作业 `output_frames=3` 产出 3 帧并从 `M 10` 自动采用 `mpi_ranks=1`；完整 HK Celeris 上传准备阶段接受 600x400 网格；package-mode UI、solver-mode UI、桌面核心矩阵和 `390x844` 窄屏核心矩阵均通过。安装包使用 `D:\AAA\tools\rece-build-venv` 中的 pinned 依赖，不使用全局 Python。
+
+注意：`RECE.exe` 是窗口化桌面程序。若只想检查 `--print-runtime` 退出码，请在 PowerShell 中使用 `Start-Process -Wait -PassThru`；运行时 JSON 状态仍推荐通过已启动服务的 `GET /api/runtime` 查看。
+
 ## 0C. GitHub Publication Handoff, 2026-06-05
 
 本轮已按“用户直接下载安装包、本地安装后打开 RECE 处理自己的数据”的目标完成 GitHub 发布。RECE 没有被拆成多个仓库；GitHub 上的 `RECE` 是总项目，包含 RECE Python 衔接层、Celeris-WebGPU 核心前端/WebGPU 管线、REEF3D/DIVEMesh 核心源码与运行组件、打包脚本、图标、许可证和说明文件。
@@ -22,14 +83,14 @@
 中文：
 
 1. 打开 Release 页面并下载 `RECE_Setup.exe`。
-2. 双击运行安装程序。
+2. 双击运行安装程序，在 `Select Destination Location` 页面接受默认路径或点击 Browse 选择自己的安装位置。
 3. 安装完成后，从桌面快捷方式或开始菜单启动 `RECE.exe`。
 4. 如果启动器提示缺少 WebView2 Runtime 或 Microsoft MPI，按提示安装对应运行时后重新打开 `RECE.exe`。
 
 English:
 
 1. Open the Release page and download `RECE_Setup.exe`.
-2. Run the installer.
+2. Run the installer and use the `Select Destination Location` page to accept the default path or choose a custom install directory.
 3. After installation, launch `RECE.exe` from the Desktop shortcut or the Start Menu.
 4. If the launcher reports that WebView2 Runtime or Microsoft MPI is missing, install the prompted runtime and start `RECE.exe` again.
 
@@ -163,7 +224,7 @@ This RECE build now exposes two front-end solver paths without modifying the ori
 
 - Celeris test path: start `python -m rece.server --host 127.0.0.1 --port 8787`, open `http://127.0.0.1:8787/`, set `Solver Mode` to `Celeris-WebGPU in browser`, select `Ventura Harbor (CA), wind waves`, then click `Run Example Simulation`.
 - REEF3D test path: set `Solver Mode` to `REEF3D backend job`, upload either Celeris-style `config.json` plus `bathy.txt` files or a native REEF3D case zip, review MPI/output/wave parameters and optional advanced `control.txt`/`ctrl.txt`, then click `Run Custom REEF3D Job`.
-- Custom REEF3D APIs are `POST /api/runs`, `GET /api/runs/{id}/status`, `GET /api/runs/{id}/manifest`, `GET /api/runs/{id}/frames/{name}`, `GET /api/runs/{id}/assets/{name}`, and `POST /api/runs/{id}/cancel`.
+- Custom REEF3D APIs are `POST /api/runs`, `GET /api/runs/{id}/status`, `GET /api/runs/{id}/manifest`, `GET /api/runs/{id}/frames/{name}`, `GET /api/runs/{id}/assets/{name}`, and `POST /api/runs/{id}/cancel`. Invalid numeric run parameters return HTTP 400 instead of being clamped. Run frame endpoints accept either manifest-relative values like `frames/state_000000.bin` or bare filenames like `state_000000.bin`.
 - Custom job folders are written to `examples/custom_runs/{run_id}` and logs to `logs/custom_runs/{run_id}`. Only one native REEF3D job runs at a time.
 - Validation commands used for this handoff include `python -m unittest tests.test_rece -v`, `python -m rece.workflow validate`, `node automation\run_rece_solver_modes_cdp.mjs`, `node automation\run_rece_smoke_cdp.mjs`, `node automation\run_rece_core_matrix_cdp.mjs`, and `node automation\run_rece_all_examples_cdp.mjs`.
 

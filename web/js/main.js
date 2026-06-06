@@ -3501,7 +3501,7 @@ document.addEventListener('DOMContentLoaded', function () {
     let lastTooltipClientY = null;
 
     function positionTooltipAtCursor(clientX, clientY) {
-        const tooltipHost = tooltip.offsetParent || canvas.parentElement;
+        const tooltipHost = canvas.closest('.window-content') || canvas.parentElement;
         if (!tooltipHost) {
             return;
         }
@@ -3509,8 +3509,11 @@ document.addEventListener('DOMContentLoaded', function () {
         const hostBounds = tooltipHost.getBoundingClientRect();
         const cursorX = clientX - hostBounds.left;
         const cursorY = clientY - hostBounds.top;
-        const tooltipWidth = tooltip.offsetWidth || tooltip.getBoundingClientRect().width;
+        const tooltipBounds = tooltip.getBoundingClientRect();
+        const tooltipWidth = tooltip.offsetWidth || tooltipBounds.width;
+        const tooltipHeight = tooltip.offsetHeight || tooltipBounds.height;
         const hostWidth = hostBounds.width;
+        const hostHeight = hostBounds.height;
 
         let tooltipLeft = cursorX;
         if (cursorX + tooltipWidth > hostWidth) {
@@ -3523,8 +3526,19 @@ document.addEventListener('DOMContentLoaded', function () {
             tooltipLeft = 0;
         }
 
+        let tooltipTop = cursorY;
+        if (cursorY + tooltipHeight > hostHeight) {
+            tooltipTop = cursorY - tooltipHeight;
+        }
+
+        if (tooltipHeight < hostHeight) {
+            tooltipTop = Math.max(0, Math.min(tooltipTop, hostHeight - tooltipHeight));
+        } else {
+            tooltipTop = 0;
+        }
+
         tooltip.style.left = `${tooltipLeft}px`;
-        tooltip.style.top = `${Math.max(0, cursorY)}px`;
+        tooltip.style.top = `${tooltipTop}px`;
     }
 
     canvas.addEventListener('mousemove', async (event) => {
@@ -3560,6 +3574,8 @@ document.addEventListener('DOMContentLoaded', function () {
         tooltip.style.borderRadius = '4px';
         tooltip.style.pointerEvents = 'none';
         tooltip.style.zIndex = '10';
+        tooltip.style.maxWidth = 'min(340px, 100%)';
+        tooltip.style.boxSizing = 'border-box';
         positionTooltipAtCursor(event.clientX, event.clientY);
     });
     
@@ -4208,10 +4224,12 @@ document.addEventListener('DOMContentLoaded', function () {
     const receRunCustomButton = document.getElementById('rece-run-custom-reef3d-btn');
     const receCancelButton = document.getElementById('rece-cancel-run-btn');
     const receCustomStatus = document.getElementById('rece-custom-run-status');
+    const receMpiRanksInput = document.getElementById('rece-mpi-ranks-input');
     let activeReceRunId = null;
     let activeReceRunLoaded = false;
     let activeRecePollTimer = null;
     let lastReceCustomStatus = null;
+    let receMpiRanksTouched = false;
 
     function syncReceSolverControls() {
         const solver = receSolverSelect?.value || 'celeris';
@@ -4237,9 +4255,62 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 
-    function readNumberInput(id, fallback) {
-        const value = Number(document.getElementById(id)?.value);
-        return Number.isFinite(value) ? value : fallback;
+    function receInputLabel(id) {
+        return document.querySelector(`label[for="${id}"]`)?.textContent?.trim() || id;
+    }
+
+    function setReceNumberInvalid(input, field, ruleKey, params = {}) {
+        const message = t('rece.runner.invalidParam', { field, rule: t(ruleKey, params) });
+        setReceCustomStatusKey('rece.runner.invalidParam', { field, rule: t(ruleKey, params) });
+        if (input) {
+            input.setCustomValidity(message);
+            input.reportValidity();
+        }
+        return null;
+    }
+
+    function readNumberInput(id, { integer = false, min = null, max = null } = {}) {
+        const input = document.getElementById(id);
+        const field = receInputLabel(id);
+        const raw = String(input?.value ?? '').trim();
+        if (!raw) {
+            return setReceNumberInvalid(input, field, 'rece.runner.ruleRequired');
+        }
+        const value = Number(raw);
+        if (!Number.isFinite(value)) {
+            return setReceNumberInvalid(input, field, 'rece.runner.ruleNumber');
+        }
+        if (integer && !Number.isInteger(value)) {
+            return setReceNumberInvalid(input, field, 'rece.runner.ruleInteger');
+        }
+        if (min !== null && value < min) {
+            return setReceNumberInvalid(input, field, 'rece.runner.ruleMin', { min });
+        }
+        if (max !== null && value > max) {
+            return setReceNumberInvalid(input, field, 'rece.runner.ruleRange', { min, max });
+        }
+        input?.setCustomValidity('');
+        return value;
+    }
+
+    function readReceRunParams() {
+        const definitions = [
+            ['mpi_ranks', 'rece-mpi-ranks-input', { integer: true, min: 1, max: 16 }],
+            ['output_frames', 'rece-output-frames-input', { integer: true, min: 1, max: 500 }],
+            ['wave_height', 'rece-wave-height-input', { min: 0 }],
+            ['wave_period', 'rece-wave-period-input', { min: 0.1 }],
+            ['wave_direction', 'rece-wave-direction-input', {}],
+            ['output_interval', 'rece-output-interval-input', { min: 0.01 }],
+        ];
+        const params = {};
+        for (const [name, id, options] of definitions) {
+            const value = readNumberInput(id, options);
+            if (value === null) {
+                return null;
+            }
+            params[name] = value;
+        }
+        return params;
     }
 
     async function fetchTextRequired(url) {
@@ -4328,14 +4399,14 @@ document.addEventListener('DOMContentLoaded', function () {
         const form = new FormData();
         form.append('solver', 'reef3d');
         form.append('input_mode', inputMode);
-        form.append('params', JSON.stringify({
-            mpi_ranks: readNumberInput('rece-mpi-ranks-input', 4),
-            output_frames: readNumberInput('rece-output-frames-input', 5),
-            wave_height: readNumberInput('rece-wave-height-input', 0.4),
-            wave_period: readNumberInput('rece-wave-period-input', 10.0),
-            wave_direction: readNumberInput('rece-wave-direction-input', 0.0),
-            output_interval: readNumberInput('rece-output-interval-input', 1.0),
-        }));
+        const runParams = readReceRunParams();
+        if (runParams === null) {
+            return;
+        }
+        if (inputMode === 'reef3d_zip' && !receMpiRanksTouched) {
+            runParams.mpi_ranks_auto = true;
+        }
+        form.append('params', JSON.stringify(runParams));
         const controlText = document.getElementById('rece-control-textarea')?.value || '';
         const ctrlText = document.getElementById('rece-ctrl-textarea')?.value || '';
         if (controlText.trim()) {
@@ -4410,6 +4481,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     receSolverSelect?.addEventListener('change', syncReceSolverControls);
     receInputModeSelect?.addEventListener('change', syncReceSolverControls);
+    receMpiRanksInput?.addEventListener('input', () => {
+        receMpiRanksTouched = true;
+    });
     receRunCustomButton?.addEventListener('click', startCustomReceRun);
     receCancelButton?.addEventListener('click', cancelCustomReceRun);
     syncReceSolverControls();

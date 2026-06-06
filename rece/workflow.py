@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
+import os
 import subprocess
 import sys
 import time
@@ -16,10 +16,13 @@ from .paths import (
     LOG_ROOT,
     RECE_ROOT,
     REEF3D_BIN,
+    RESOURCE_ROOT,
     SCENARIOS_ROOT,
     ensure_rece_write,
+    find_mpiexec,
     mkdir_rece,
     rel_to_rece,
+    require_mpiexec,
     write_text_rece,
 )
 
@@ -32,12 +35,12 @@ def check_environment() -> dict[str, object]:
             packages[name] = getattr(module, "__version__", "available")
         except Exception as exc:  # noqa: BLE001
             packages[name] = f"missing: {exc}"
-    mpiexec = shutil.which("mpiexec") or r"C:\Program Files\Microsoft MPI\Bin\mpiexec.exe"
+    mpiexec = find_mpiexec()
     report = {
         "rece_root": str(RECE_ROOT),
         "divemesh": {"path": str(DIVEMESH_BIN), "exists": DIVEMESH_BIN.exists()},
         "reef3d": {"path": str(REEF3D_BIN), "exists": REEF3D_BIN.exists()},
-        "mpiexec": {"path": mpiexec, "exists": Path(mpiexec).exists() if mpiexec else False},
+        "mpiexec": {"path": str(mpiexec) if mpiexec is not None else "", "exists": mpiexec is not None},
         "python": sys.version,
         "packages": packages,
     }
@@ -45,11 +48,34 @@ def check_environment() -> dict[str, object]:
     return report
 
 
+def _find_mpiexec() -> str:
+    return require_mpiexec()
+
+
+def _external_solver_env() -> dict[str, str]:
+    env = os.environ.copy()
+    resource_root = RESOURCE_ROOT.resolve()
+    path_entries: list[str] = []
+    for entry in env.get("PATH", "").split(os.pathsep):
+        if not entry:
+            continue
+        try:
+            resolved = Path(entry).resolve()
+        except OSError:
+            path_entries.append(entry)
+            continue
+        if resolved == resource_root or resource_root in resolved.parents:
+            continue
+        path_entries.append(entry)
+    env["PATH"] = os.pathsep.join(path_entries)
+    return env
+
+
 def _run_process(args: list[str], cwd: Path, *, log_prefix: str, timeout: int = 900) -> subprocess.CompletedProcess[str]:
     cwd = ensure_rece_write(cwd)
     log_dir = mkdir_rece(LOG_ROOT / HK_SCENARIO)
     started = time.strftime("%Y%m%d_%H%M%S")
-    proc = subprocess.run(args, cwd=cwd, text=True, capture_output=True, timeout=timeout, check=False)
+    proc = subprocess.run(args, cwd=cwd, text=True, capture_output=True, timeout=timeout, check=False, env=_external_solver_env())
     write_text_rece(log_dir / f"{started}_{log_prefix}_stdout.log", proc.stdout)
     write_text_rece(log_dir / f"{started}_{log_prefix}_stderr.log", proc.stderr)
     if proc.returncode != 0:
@@ -70,14 +96,15 @@ def run_divemesh() -> None:
 def run_reef3d(mpi_ranks: int = 4) -> None:
     if not REEF3D_BIN.exists():
         raise FileNotFoundError(REEF3D_BIN)
+    if mpi_ranks < 1:
+        raise ValueError("mpi_ranks must be at least 1")
     case_dir = SCENARIOS_ROOT / HK_SCENARIO / "reef3d_case"
     if not (case_dir / "ctrl.txt").exists():
         raise FileNotFoundError(case_dir / "ctrl.txt")
-    mpiexec = shutil.which("mpiexec") or r"C:\Program Files\Microsoft MPI\Bin\mpiexec.exe"
-    if mpi_ranks > 1:
-        args = [mpiexec, "-n", str(mpi_ranks), str(REEF3D_BIN)]
-    else:
+    if mpi_ranks == 1:
         args = [str(REEF3D_BIN)]
+    else:
+        args = [_find_mpiexec(), "-n", str(mpi_ranks), str(REEF3D_BIN)]
     _run_process(args, case_dir, log_prefix="reef3d", timeout=1800)
 
 
