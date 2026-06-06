@@ -50,11 +50,15 @@ jobs:
         run: |
           mkdir -p ../tools
           python3.12 -m venv --system-site-packages ../tools/rece-build-venv
-          "$RECE_LINUX_PYTHON" -m pip install --upgrade pip wheel setuptools
+          "$RECE_LINUX_PYTHON" -m pip install --upgrade pip wheel "setuptools<82"
           "$RECE_LINUX_PYTHON" -m pip install --upgrade pyinstaller pyinstaller-hooks-contrib
           "$RECE_LINUX_PYTHON" -m pip install -r requirements.txt
           "$RECE_LINUX_PYTHON" - <<'PY'
+          import pkg_resources
+          import setuptools
           import gi
+          print(f"setuptools {setuptools.__version__}")
+          print(f"pkg_resources {pkg_resources.__file__}")
           gi.require_version("Gtk", "3.0")
           gi.require_version("WebKit2", "4.1")
           from gi.repository import Gtk, WebKit2

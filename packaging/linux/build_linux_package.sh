@@ -62,6 +62,28 @@ write_sha256() {
   (cd "$(dirname "${path}")" && sha256sum "$(basename "${path}")" > "$(basename "${path}").sha256")
 }
 
+check_python_build_env() {
+  "${PYTHON_BIN}" - <<'PY'
+from __future__ import annotations
+
+from importlib.metadata import version
+
+
+def parse_major_minor(value: str) -> tuple[int, int]:
+    parts = value.split(".", 2)
+    return int(parts[0]), int(parts[1]) if len(parts) > 1 else 0
+
+
+setuptools_version = version("setuptools")
+if parse_major_minor(setuptools_version) >= (82, 0):
+    raise SystemExit(
+        "Linux PyInstaller packaging requires setuptools<82 because this build still uses pkg_resources. "
+        "Run: python -m pip install 'setuptools<82'"
+    )
+import pkg_resources  # noqa: F401
+PY
+}
+
 build_solvers() {
   mkdir -p "${SOLVER_BIN_DIR}"
   cmake -S "${ROOT}/third_party/REEF3D/src/REEF3D" \
@@ -210,6 +232,7 @@ main() {
   command -v cmake >/dev/null
   command -v dpkg-deb >/dev/null
   "${PYTHON_BIN}" -m PyInstaller --version >/dev/null
+  check_python_build_env
   build_solvers
   stage_runtime_resources
   create_source_archive
