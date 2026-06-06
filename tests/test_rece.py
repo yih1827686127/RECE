@@ -212,6 +212,9 @@ class RECEConversionTests(unittest.TestCase):
         self.assertFalse((RECE_ROOT / "web" / "examples" / scenario / "frames_manifest.json").exists())
 
     def test_convert_meander_for_test_uses_rece_copy(self) -> None:
+        case_dir = RECE_ROOT / "third_party" / "REEF3D" / "simulations" / "NHFLOW_Meander"
+        if not (case_dir / "REEF3D_NHFLOW_VTP_FSF").exists():
+            self.skipTest("Copied Meander VTP output is not available")
         output_dir = RECE_ROOT / "tmp" / "test_meander_helper"
         manifest = convert_meander_for_test(output_dir)
         self.assertEqual(manifest["scenario"], "meander_conversion_test")
@@ -259,6 +262,10 @@ class RECEConversionTests(unittest.TestCase):
 
 
 class RECECustomCaseTests(unittest.TestCase):
+    def assert_mpi_launcher(self, path: str) -> None:
+        name = Path(path).name.lower()
+        self.assertTrue("mpiexec" in name or name in {"mpirun", "orterun"}, f"unexpected MPI launcher: {path}")
+
     def make_small_celeris_uploads(self, root: Path) -> dict[str, Path]:
         root.mkdir(parents=True, exist_ok=True)
         config = {
@@ -342,19 +349,19 @@ class RECECustomCaseTests(unittest.TestCase):
         celeris_args = JobManager()._reef3d_args(1, "celeris_files")
         self.assertEqual(Path(celeris_args[0]).name.lower(), "reef3d.exe" if PLATFORM == "windows" else "reef3d")
         native_args = JobManager()._reef3d_args(1, "reef3d_zip")
-        self.assertIn("mpiexec", Path(native_args[0]).name.lower())
+        self.assert_mpi_launcher(native_args[0])
         self.assertEqual(native_args[1:3], ["-n", "1"])
         self.assertEqual(Path(native_args[3]).name.lower(), "reef3d.exe" if PLATFORM == "windows" else "reef3d")
 
     def test_reef3d_args_use_mpiexec_for_multi_rank(self) -> None:
         args = JobManager()._reef3d_args(2, "celeris_files")
-        self.assertIn("mpiexec", Path(args[0]).name.lower())
+        self.assert_mpi_launcher(args[0])
         self.assertEqual(args[1:3], ["-n", "2"])
         self.assertEqual(Path(args[3]).name.lower(), "reef3d.exe" if PLATFORM == "windows" else "reef3d")
 
     def test_external_solver_env_filters_package_internal_path(self) -> None:
         internal = str(RESOURCE_ROOT)
-        external = r"C:\Program Files\Microsoft MPI\Bin"
+        external = r"C:\Program Files\Microsoft MPI\Bin" if PLATFORM == "windows" else "/usr/bin"
         original_path = os.environ.get("PATH", "")
         try:
             os.environ["PATH"] = os.pathsep.join([internal, str(RESOURCE_ROOT / "scipy"), external])
