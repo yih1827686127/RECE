@@ -17,6 +17,17 @@ for name in ["web", "third_party", "licenses", "source"]:
 datas += collect_data_files("webview")
 datas += collect_data_files("gi")
 
+
+def collect_optional_submodules(*packages):
+    collected = []
+    for package in packages:
+        try:
+            collected += collect_submodules(package)
+        except Exception:
+            pass
+    return collected
+
+
 hiddenimports = []
 webview_excluded_prefixes = (
     "webview.platforms.android",
@@ -32,6 +43,15 @@ hiddenimports += [
     if not name.startswith(webview_excluded_prefixes)
 ]
 hiddenimports += collect_submodules("gi")
+hiddenimports += collect_optional_submodules(
+    "backports",
+    "importlib_metadata",
+    "jaraco",
+    "more_itertools",
+    "packaging",
+    "platformdirs",
+    "zipp",
+)
 
 hiddenimports += [
     "PIL.Image",
