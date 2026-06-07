@@ -32,6 +32,10 @@ Creates the render bind-group layout and bind group used by the 2D and 3D visual
 
 `update_colorbar()` draws logos, labels, tick marks, and tick values to an offscreen canvas, then uploads it to `txDraw`. The fragment shader samples `txDraw` and composites non-white pixels over the rendered field.
 
+Colorbar label and tick fonts are sized from the actual render canvas, not the
+source grid. This is important for REEF3D LOD playback, where the visualization
+grid can be much smaller than the displayed canvas.
+
 ## Change Notes
 
 `main.js` creates this bind group at startup and may rebuild it when the overlay selector switches back to a loaded Google Maps or satellite image. All call sites must pass the full argument list, including `txDesignComponents`, `textureSampler_linear`, and `txRenderVarsf16`; missing trailing arguments can stop the render loop during an overlay toggle.

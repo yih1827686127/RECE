@@ -268,17 +268,9 @@ export async function update_colorbar(device, offscreenCanvas, ctx, calc_constan
     // not cover bathymetry, overlays, or external REEF3D frames.
 
     // Set text styles
-    if(calc_constants.WIDTH > 1000) {
-        ctx.font = '22px Arial';
-    } else if(calc_constants.WIDTH > 800) {
-        ctx.font = '20px Arial';
-    } else if(calc_constants.WIDTH > 600) {
-        ctx.font = '14px Arial';
-    } else if(calc_constants.WIDTH > 400) {
-        ctx.font = '12px Arial';
-    } else {
-        ctx.font = '10px Arial';
-    }
+    const labelFontPx = Math.min(18, Math.max(10, Math.round(offscreenCanvas.height * 0.018)));
+    const tickFontPx = Math.min(14, Math.max(8, Math.round(offscreenCanvas.height * 0.014)));
+    ctx.font = `${labelFontPx}px Arial`;
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -340,17 +332,7 @@ export async function update_colorbar(device, offscreenCanvas, ctx, calc_constan
     }
 
     // Add tick labels
-    if(calc_constants.WIDTH > 1000) {
-        ctx.font = '18px Arial';
-    } else if(calc_constants.WIDTH > 800) {
-        ctx.font = '16px Arial';
-    } else if(calc_constants.WIDTH > 600) {
-        ctx.font = '12px Arial';
-    } else if(calc_constants.WIDTH > 400) {
-        ctx.font = '10px Arial';
-    } else {
-        ctx.font = '8px Arial';
-    }
+    ctx.font = `${tickFontPx}px Arial`;
 
     ctx.textBaseline = 'top';
     let ticklabel_shift = 20;

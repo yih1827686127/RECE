@@ -369,6 +369,56 @@ async function loadConfig() {
 }
 
 // set the control parameters
+function clampNumber(value, minValue, maxValue) {
+    return Math.min(maxValue, Math.max(minValue, value));
+}
+
+function alignedCanvasWidth(width) {
+    return Math.max(64, Math.ceil(width / 64) * 64);
+}
+
+function alignedCanvasWidthAtMost(width) {
+    return Math.max(64, Math.floor(width / 64) * 64);
+}
+
+function update_canvas_display_dimensions(canvas) {
+    const grid_ratio = calc_constants.dx / calc_constants.dy;
+    const domainAspect = clampNumber(
+        (calc_constants.WIDTH * calc_constants.dx) / Math.max(calc_constants.HEIGHT * calc_constants.dy, 1.0e-6),
+        0.1,
+        12.0
+    );
+    const hostWidth = canvas?.parentElement?.clientWidth || canvas?.clientWidth || 960;
+    const pixelRatio = clampNumber(window.devicePixelRatio || 1, 1, 2);
+    const minRenderWidth = 640;
+    const maxRenderWidth = 2048;
+    const maxRenderHeight = 1536;
+    let renderWidth = clampNumber(Math.round(hostWidth * pixelRatio), minRenderWidth, maxRenderWidth);
+    let renderHeight = Math.round(renderWidth / domainAspect);
+    if (renderHeight > maxRenderHeight) {
+        renderHeight = maxRenderHeight;
+        renderWidth = Math.round(renderHeight * domainAspect);
+    }
+    renderWidth = alignedCanvasWidth(renderWidth);
+    renderHeight = Math.max(64, Math.round(renderWidth / domainAspect));
+    if (renderHeight > maxRenderHeight) {
+        renderWidth = alignedCanvasWidthAtMost(maxRenderHeight * domainAspect);
+        renderHeight = Math.max(64, Math.round(renderWidth / domainAspect));
+    }
+
+    canvas.width = renderWidth;
+    canvas.height = renderHeight;
+    calc_constants.canvas_width_ratio = grid_ratio >= 1.0 ? 1 / grid_ratio : grid_ratio;
+    calc_constants.canvas_height_ratio = 1.0;
+
+    const colorbarPixels = clampNumber(Math.round(canvas.height * 0.055), 18, 34);
+    calc_constants.CB_ystart = colorbarPixels;
+    calc_constants.CB_label_height = clampNumber(Math.round(colorbarPixels * 0.35), 7, 12);
+    calc_constants.CB_xbuffer = Math.floor(canvas.width * calc_constants.CB_xbuffer_uv);
+    calc_constants.CB_xstart = Math.floor(canvas.width * calc_constants.CB_xstart_uv) + 1;
+    calc_constants.CB_width = Math.floor(canvas.width * calc_constants.CB_width_uv) - 1;
+}
+
 async function init_sim_parameters(canvas, configContent) {
 
     // Try to parse the JSON content
@@ -511,33 +561,16 @@ async function init_sim_parameters(canvas, configContent) {
     //let fall_vel_a = 4.0 / 3.0 * 9.81 * calc_constants.sedC1_d50/1000. / 0.2 * (calc_constants.sedC1_denrat - 1.0); 
     //calc_constants.sedC1_fallvel = Math.pow(fall_vel_a, 0.5);
  
-    // Set the canvas dimensions based on the above-defined WIDTH and HEIGHT values.
-    let grid_ratio = calc_constants.dx / calc_constants.dy;
-    if (grid_ratio >= 1.0) {
-        canvas.width = Math.ceil(calc_constants.WIDTH/64*grid_ratio)*64;  // width needs to have a multiple of 256 bytes per row.  Data will have four channels (rgba), so mulitple os 256/4 = 64;
-        canvas.height = Math.round(calc_constants.HEIGHT * canvas.width / calc_constants.WIDTH / grid_ratio);
-        calc_constants.canvas_width_ratio = 1/grid_ratio;
-    }
-    else {
-        canvas.width = Math.ceil(calc_constants.WIDTH/64)*64;  // width needs to have a multiple of 256 bytes per row.  Data will have four channels (rgba), so mulitple os 256/4 = 64;
-        canvas.height = Math.round(calc_constants.HEIGHT * canvas.width / calc_constants.WIDTH / grid_ratio);
-        calc_constants.canvas_width_ratio = grid_ratio;
-    }
-
     // colorbar properties
     calc_constants.CB_show = 1; // show colorbar when = 1 
     calc_constants.CB_xbuffer_uv = 0.01;  // 1% width buffer on either side of colorbar area
-    calc_constants.CB_xstart_uv = 0.05;  // colorbar starts at 5% of width
+    calc_constants.CB_xstart_uv = 0.10;  // colorbar starts at 10% of width
     calc_constants.CB_width_uv = 1.0 - 2.0 * calc_constants.CB_xstart_uv;  // 4% width buffer on either side of colorbar area
-    calc_constants.CB_xbuffer = Math.floor(canvas.width*calc_constants.CB_xbuffer_uv);  // 1% width buffer on either side of colorbar area
-    calc_constants.CB_xstart = Math.floor(canvas.width*calc_constants.CB_xstart_uv)+1;  // colorbar starts at 5% of width
-    calc_constants.CB_width = Math.floor(canvas.width*calc_constants.CB_width_uv)-1;  // 4% width buffer on either side of colorbar area
-    calc_constants.CB_ystart = 30;  // colorbar starts at pixel 30 - this is where the tick marks will be plotted
-    calc_constants.CB_label_height = 10; // pixel index to place colorbar label
+    update_canvas_display_dimensions(canvas);
     
     calc_constants.chartDataUpdate = 1; // update chart to start
 
     console.log("Simulation parameters set.");
 }
 
-export { calc_constants, timeSeriesData, loadConfig, init_sim_parameters };
+export { calc_constants, timeSeriesData, loadConfig, init_sim_parameters, update_canvas_display_dimensions };

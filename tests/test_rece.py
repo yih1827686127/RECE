@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import http.client
+import io
 import json
 import os
 import shutil
 import threading
+import time
 import unittest
 import uuid
 import zipfile
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -23,15 +26,80 @@ from rece.custom_case import (
     safe_extract_zip,
     validate_grid,
 )
+from rece.imports import IMPORT_MANAGER, LocalImportManager
 from rece.jobs import MANAGER, JobManager, _external_solver_env
+from rece.lod import build_lod_cache
+from rece.result_index import scan_reef3d_directory
 from rece.hk_prepare import Tile, cached_or_downloaded_tifs, find_one, prepare_hk_smoke, select_dtm_tiles
-from rece.paths import DATA_ROOT, DIVEMESH_BIN, PLATFORM, RECE_ROOT, REEF3D_BIN, RESOURCE_ROOT, ensure_allowed_read, ensure_rece_write, runtime_info
-from rece.server import RECEHandler
+from rece.paths import DATA_ROOT, DIVEMESH_BIN, PLATFORM, RECE_ROOT, REEF3D_BIN, RESOURCE_ROOT, UPLOAD_LIMIT_BYTES, ensure_allowed_read, ensure_rece_write, runtime_info
+from rece.server import RECEHandler, _parse_multipart
 from rece.workflow import convert_meander_for_test
 
 
 def has_hk_source_data() -> bool:
     return any(DATA_ROOT.glob("Hong_Kong_Digital_Terrain_Model_from_2020_LiDAR_Survey_*.geojson"))
+
+
+def write_synthetic_vtp(path: Path, width: int, height: int, dx: float = 1.0, dy: float = 1.0) -> None:
+    points: list[str] = []
+    eta: list[str] = []
+    velocity: list[str] = []
+    for y in range(height):
+        for x in range(width):
+            points.append(f"{(x + 0.5) * dx:.6f} {(y + 0.5) * dy:.6f} 0.100000")
+            eta.append("0.100000")
+            velocity.append("0.050000 0.020000 0.000000")
+    count = width * height
+    connectivity = " ".join(str(i) for i in range(count))
+    offsets = " ".join(str(i + 1) for i in range(count))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"""<?xml version="1.0"?>
+<VTKFile type="PolyData" version="0.1" byte_order="LittleEndian">
+  <PolyData>
+    <Piece NumberOfPoints="{count}" NumberOfVerts="{count}" NumberOfLines="0" NumberOfStrips="0" NumberOfPolys="0">
+      <PointData Vectors="velocity">
+        <DataArray type="Float32" Name="eta" NumberOfComponents="1" format="ascii">{' '.join(eta)}</DataArray>
+        <DataArray type="Float32" Name="velocity" NumberOfComponents="3" format="ascii">{' '.join(velocity)}</DataArray>
+      </PointData>
+      <Points>
+        <DataArray type="Float32" NumberOfComponents="3" format="ascii">{' '.join(points)}</DataArray>
+      </Points>
+      <Verts>
+        <DataArray type="Int32" Name="connectivity" format="ascii">{connectivity}</DataArray>
+        <DataArray type="Int32" Name="offsets" format="ascii">{offsets}</DataArray>
+      </Verts>
+    </Piece>
+  </PolyData>
+</VTKFile>
+""",
+        encoding="utf-8",
+    )
+
+
+def make_native_result_case(root: Path, *, width: int = 4, height: int = 4) -> Path:
+    case = root / "native_case"
+    case.mkdir(parents=True, exist_ok=True)
+    (case / "geo.dat").write_text("0 0 -2\n", encoding="utf-8")
+    (case / "control.txt").write_text("C 11 6\nM 10 4\n", encoding="utf-8")
+    (case / "ctrl.txt").write_text("A 10 5\nM 10 4\n", encoding="utf-8")
+    (case / "config.json").write_text(
+        json.dumps({"WIDTH": width, "HEIGHT": height, "dx": 1.0, "dy": 1.0, "seaLevel": 0.0}),
+        encoding="utf-8",
+    )
+    np.savetxt(case / "bathy.txt", np.full((height, width), -2.0, dtype=np.float32), fmt="%.3f")
+    write_synthetic_vtp(case / "REEF3D_NHFLOW_VTP_FSF" / "free_surface_0000.vtp", width, height)
+    volume_dir = case / "REEF3D_NHFLOW_VTU"
+    volume_dir.mkdir(parents=True, exist_ok=True)
+    (volume_dir / "volume_0000.vtu").write_text("<VTKFile type=\"UnstructuredGrid\"></VTKFile>\n", encoding="utf-8")
+    (volume_dir / "volume_0000.pvtu").write_text("<VTKFile type=\"PUnstructuredGrid\"></VTKFile>\n", encoding="utf-8")
+    (case / "REEF3D_Log").mkdir(exist_ok=True)
+    (case / "REEF3D_Log" / "run.log").write_text("ok\n", encoding="utf-8")
+    (case / "REEF3D_Log-Probes").mkdir(exist_ok=True)
+    (case / "REEF3D_Log-Probes" / "probe_001.dat").write_text("0 0.1\n", encoding="utf-8")
+    (case / "runup_logs").mkdir(exist_ok=True)
+    (case / "runup_logs" / "runup.txt").write_text("0 0.2\n", encoding="utf-8")
+    return case
 
 
 class RECEPathTests(unittest.TestCase):
@@ -93,6 +161,10 @@ class RECEPackagingTests(unittest.TestCase):
         self.assertEqual(info["reef3d_bin"], str(REEF3D_BIN))
         self.assertEqual(info["divemesh_bin"], str(DIVEMESH_BIN))
         self.assertIn("mpiexec_exists", info)
+        self.assertEqual(info["upload_limit_bytes"], UPLOAD_LIMIT_BYTES)
+        self.assertIn("local_import_supported", info)
+        self.assertIn("max_default_lod_cells", info)
+        self.assertIn("desktop_directory_picker_supported", info)
         if PLATFORM == "windows":
             self.assertTrue(str(REEF3D_BIN).lower().endswith("reef3d.exe"))
             self.assertTrue(str(DIVEMESH_BIN).lower().endswith("divemesh.exe"))
@@ -261,6 +333,173 @@ class RECEConversionTests(unittest.TestCase):
         self.assertEqual(len(second["frames"]), 2)
 
 
+class RECELocalImportTests(unittest.TestCase):
+    def wait_import_done(self, manager: LocalImportManager, import_id: str, timeout: float = 20.0) -> dict[str, object]:
+        deadline = time.time() + timeout
+        final = None
+        while time.time() < deadline:
+            final = manager.public_status(import_id)
+            if final and final.get("status") in {"complete", "failed", "cancelled"}:
+                return final
+            time.sleep(0.1)
+        self.fail(f"local import did not finish: {final}")
+
+    def test_local_import_token_path_cannot_be_forged(self) -> None:
+        root = RECE_ROOT / "tmp" / f"unit_import_token_{uuid.uuid4().hex}"
+        allowed = root / "allowed"
+        other = root / "other"
+        allowed.mkdir(parents=True, exist_ok=True)
+        other.mkdir(parents=True, exist_ok=True)
+        manager = LocalImportManager()
+        auth = manager.authorize_directory(allowed)
+        with self.assertRaises(PermissionError):
+            manager.create_import_from_authorized(other, str(auth["token"]))
+        with self.assertRaises(PermissionError):
+            manager.create_import_from_authorized(allowed, "not-a-real-token")
+
+    def test_local_run_output_token_path_cannot_be_forged(self) -> None:
+        old = os.environ.get("RECE_ENABLE_LOCAL_IMPORT")
+        os.environ["RECE_ENABLE_LOCAL_IMPORT"] = "1"
+        try:
+            root = RECE_ROOT / "tmp" / f"unit_output_token_{uuid.uuid4().hex}"
+            allowed = root / "allowed"
+            other = root / "other"
+            allowed.mkdir(parents=True, exist_ok=True)
+            other.mkdir(parents=True, exist_ok=True)
+            manager = LocalImportManager()
+            auth = manager.authorize_output_directory(allowed)
+            with self.assertRaises(PermissionError):
+                manager.consume_output_authorization(other, str(auth["token"]))
+            with self.assertRaises(PermissionError):
+                manager.consume_output_authorization(allowed, "not-a-real-token")
+        finally:
+            if old is None:
+                os.environ.pop("RECE_ENABLE_LOCAL_IMPORT", None)
+            else:
+                os.environ["RECE_ENABLE_LOCAL_IMPORT"] = old
+
+    def test_cancel_import_stops_scanning_and_marks_cancelled(self) -> None:
+        root = RECE_ROOT / "tmp" / f"unit_import_cancel_{uuid.uuid4().hex}"
+        root.mkdir(parents=True, exist_ok=True)
+        manager = LocalImportManager()
+        stopped = threading.Event()
+
+        def fake_scan(source_dir: Path, *, cancel_event: threading.Event | None = None, progress_callback=None) -> dict[str, object]:
+            while cancel_event is not None and not cancel_event.is_set():
+                time.sleep(0.02)
+            stopped.set()
+            raise InterruptedError("import cancelled")
+
+        with mock.patch("rece.imports.scan_reef3d_directory", fake_scan):
+            status = manager._create_import(root, source="test")
+            manager.cancel(str(status["id"]))
+            deadline = time.time() + 5
+            final = None
+            while time.time() < deadline:
+                final = manager.public_status(str(status["id"]))
+                if final and final.get("status") == "cancelled":
+                    break
+                time.sleep(0.05)
+        self.assertTrue(stopped.is_set())
+        self.assertIsNotNone(final)
+        self.assertEqual(final["status"], "cancelled")
+
+    def test_native_case_and_reef3d_outputs_are_indexed(self) -> None:
+        root = RECE_ROOT / "tmp" / f"unit_import_index_{uuid.uuid4().hex}"
+        make_native_result_case(root)
+        index = scan_reef3d_directory(root)
+        self.assertTrue(index["native_case"]["recognized"])
+        self.assertEqual(index["native_case"]["grid"]["width"], 4)
+        self.assertEqual(index["native_case"]["mpi_ranks"], 4)
+        summary = index["summary"]
+        self.assertGreaterEqual(summary["free_surface_files"], 1)
+        self.assertGreaterEqual(summary["volume_field_files"], 2)
+        self.assertGreaterEqual(summary["diagnostic_logs"], 3)
+        categories = {item["category"] for item in index["result_files"]}
+        self.assertIn("free_surface", categories)
+        self.assertIn("volume_field", categories)
+        self.assertIn("diagnostic_log", categories)
+
+    def test_lod_generation_records_source_and_visualization_grids(self) -> None:
+        root = RECE_ROOT / "tmp" / f"unit_lod_source_{uuid.uuid4().hex}"
+        make_native_result_case(root)
+        index = scan_reef3d_directory(root)
+        index.pop("all_files", None)
+        output_dir = RECE_ROOT / "tmp" / f"unit_lod_output_{uuid.uuid4().hex}"
+        manifest = build_lod_cache("unit_import", root, output_dir, index)
+        self.assertGreaterEqual(len(manifest["lod_levels"]), 1)
+        self.assertEqual(manifest["source_grid"]["width"], 4)
+        level = next(item for item in manifest["lod_levels"] if item["factor"] == 1)
+        frame_manifest = json.loads((output_dir / "lod" / "factor_1" / "frames_manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(frame_manifest["source_grid"]["width"], 4)
+        self.assertEqual(frame_manifest["visualization_grid"]["width"], 4)
+        self.assertIn("LOD visualization cache", frame_manifest["accuracy_note"])
+        state_path = output_dir / "lod" / "factor_1" / frame_manifest["frames"][0]["state"]
+        self.assertEqual(state_path.stat().st_size, 4 * 4 * 4 * 4)
+
+    def test_import_id_can_create_viewer_run_from_lod_cache(self) -> None:
+        root = RECE_ROOT / "tmp" / f"unit_import_viewer_{uuid.uuid4().hex}"
+        make_native_result_case(root)
+        status = IMPORT_MANAGER._create_import(root, source="test")
+        deadline = time.time() + 20
+        final = None
+        while time.time() < deadline:
+            final = IMPORT_MANAGER.public_status(str(status["id"]))
+            if final and final.get("status") in {"complete", "failed", "cancelled"}:
+                break
+            time.sleep(0.1)
+        self.assertIsNotNone(final)
+        self.assertEqual(final["status"], "complete", final)
+        manager = JobManager()
+        viewer = manager.create_import_viewer_job(import_id=str(status["id"]), lod_factor=1)
+        self.assertEqual(viewer["input_mode"], "local_import")
+        self.assertEqual(viewer["status"], "complete")
+        self.assertEqual(viewer["frame_count"], 1)
+        config_path = manager.asset_path(str(viewer["id"]), "config.json")
+        manifest_path = manager.manifest_path(str(viewer["id"]))
+        frame_path = manager.frame_path(str(viewer["id"]), "frames/state_000000.bin")
+        self.assertIsNotNone(config_path)
+        self.assertIsNotNone(manifest_path)
+        self.assertIsNotNone(frame_path)
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        self.assertEqual(config["externalFrameManifest"], f"/api/runs/{viewer['id']}/manifest")
+        self.assertEqual(config["receVisualizationType"], "Celeris LOD visualization cache")
+
+    def test_local_import_solve_prepares_isolated_output_copy(self) -> None:
+        old = os.environ.get("RECE_ENABLE_LOCAL_IMPORT")
+        os.environ["RECE_ENABLE_LOCAL_IMPORT"] = "1"
+        try:
+            root = RECE_ROOT / "tmp" / f"unit_import_solve_{uuid.uuid4().hex}"
+            source_case = make_native_result_case(root)
+            manager = LocalImportManager()
+            status = manager._create_import(root, source="test")
+            final = self.wait_import_done(manager, str(status["id"]))
+            self.assertEqual(final["status"], "complete", final)
+            output_root = RECE_ROOT / "tmp" / f"unit_import_solve_out_{uuid.uuid4().hex}"
+            output_root.mkdir(parents=True, exist_ok=True)
+            auth = manager.authorize_output_directory(output_root)
+            run_id = f"unit_local_solve_{uuid.uuid4().hex}"
+            prepared = manager.prepare_solver_run(
+                str(status["id"]),
+                run_id,
+                output_path=str(auth["path"]),
+                output_token=str(auth["token"]),
+                params={"mpi_ranks": 2, "output_frames": 2},
+            )
+            self.assertTrue((output_root / f"RECE_Run_{run_id}" / "reef3d_case").exists())
+            self.assertEqual(read_m10_partition(source_case / "control.txt"), 4)
+            self.assertEqual(read_m10_partition(prepared.case_dir / "control.txt"), 2)
+            self.assertFalse((prepared.case_dir / "REEF3D_NHFLOW_VTP_FSF").exists())
+            self.assertFalse(any(prepared.case_dir.rglob("*.vtu")))
+            self.assertEqual(prepared.input_mode, "local_import_solve")
+            self.assertTrue(str(prepared.run_dir).startswith(str(CUSTOM_RUNS_ROOT)))
+        finally:
+            if old is None:
+                os.environ.pop("RECE_ENABLE_LOCAL_IMPORT", None)
+            else:
+                os.environ["RECE_ENABLE_LOCAL_IMPORT"] = old
+
+
 class RECECustomCaseTests(unittest.TestCase):
     def assert_mpi_launcher(self, path: str) -> None:
         name = Path(path).name.lower()
@@ -333,7 +572,7 @@ class RECECustomCaseTests(unittest.TestCase):
             {"output_frames": "nan"},
             {"output_frames": 1.5},
             {"mpi_ranks": 0},
-            {"mpi_ranks": 17},
+            {"mpi_ranks": 1025},
             {"mpi_ranks": "abc"},
             {"wave_height": -0.1},
             {"wave_period": 0.0},
@@ -344,6 +583,9 @@ class RECECustomCaseTests(unittest.TestCase):
             with self.subTest(params=params):
                 with self.assertRaises(ValueError):
                     normalize_params(params)
+
+    def test_normalize_params_allows_research_mpi_ranks_above_16(self) -> None:
+        self.assertEqual(normalize_params({"mpi_ranks": 32})["mpi_ranks"], 32)
 
     def test_reef3d_args_select_single_rank_launcher_by_input_mode(self) -> None:
         celeris_args = JobManager()._reef3d_args(1, "celeris_files")
@@ -380,6 +622,28 @@ class RECECustomCaseTests(unittest.TestCase):
             zf.writestr("../geo.dat", "bad")
         with self.assertRaisesRegex(ValueError, "Unsafe zip member"):
             safe_extract_zip(zip_path, root / "extract")
+
+    def test_safe_extract_zip_rejects_member_over_one_gib(self) -> None:
+        class FakeInfo:
+            filename = "huge.vtp"
+            file_size = UPLOAD_LIMIT_BYTES + 1
+
+            def is_dir(self) -> bool:
+                return False
+
+        class FakeZip:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb) -> None:
+                return None
+
+            def infolist(self):
+                return [FakeInfo()]
+
+        with mock.patch("rece.custom_case.zipfile.ZipFile", lambda _path: FakeZip()):
+            with self.assertRaisesRegex(ValueError, "1 GiB"):
+                safe_extract_zip(RECE_ROOT / "tmp" / "fake.zip", RECE_ROOT / "tmp" / f"unit_zip_huge_{uuid.uuid4().hex}")
 
     def test_prepare_from_reef3d_zip_accepts_case_package(self) -> None:
         run_id = f"unit_zip_case_{uuid.uuid4().hex}"
@@ -506,6 +770,17 @@ class RECEServerTests(unittest.TestCase):
         for path in ["/../README.md", "/%2e%2e/README.md"]:
             status, body = self.request_status(path)
             self.assertEqual(status, 404, body[:120])
+
+    def test_multipart_upload_rejects_content_length_over_one_gib(self) -> None:
+        class FakeHandler:
+            headers = {
+                "Content-Type": "multipart/form-data; boundary=unit",
+                "Content-Length": str(UPLOAD_LIMIT_BYTES + 1),
+            }
+            rfile = io.BytesIO()
+
+        with self.assertRaisesRegex(ValueError, "1 GiB"):
+            _parse_multipart(FakeHandler())
 
     def test_frame_path_traversal_is_rejected(self) -> None:
         for path in [

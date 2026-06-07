@@ -11,6 +11,7 @@ const BUILD_PYTHON_POSIX = path.resolve(RECE_ROOT, "..", "tools", "rece-build-ve
 const SCREENSHOT_DIR = path.join(RECE_ROOT, "examples", "hk_victoria_smoke", "screenshots", "solver_modes");
 const REPORT_PATH = path.join(SCREENSHOT_DIR, "rece_solver_modes_report.json");
 const SCREENSHOT_PATH = path.join(SCREENSHOT_DIR, "solver_modes.png");
+const CDP_COMMAND_TIMEOUT_MS = Number(process.env.RECE_CDP_COMMAND_TIMEOUT_MS || 45000);
 const APP_URL = process.env.RECE_URL || "http://127.0.0.1:8791/";
 const DEBUG_HOST = "127.0.0.1";
 const DEBUG_PORT_START = Number(process.env.CDP_PORT || 9382);
@@ -206,7 +207,7 @@ class CdpClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`CDP command timed out: ${method}`));
-      }, 15000);
+      }, CDP_COMMAND_TIMEOUT_MS);
       this.pending.set(id, { resolve, reject, timer });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
@@ -399,6 +400,192 @@ async function main() {
       }, 350));
     })()`);
 
+    const uploadLimitState = await runtimeValue(client, `(() => {
+      const oldAlert = window.alert;
+      let message = "";
+      window.alert = (value) => { message = String(value); };
+      const ok = window.RECE_TEST_HOOKS?.validateUploadFiles?.([{ name: "huge_case.zip", size: 1073741824 + 1 }]);
+      window.alert = oldAlert;
+      return {
+        ok,
+        message,
+        hasEnglish: /browser uploads are limited/i.test(message),
+        hasChinese: /浏览器上传限制/.test(message),
+      };
+    })()`);
+
+    const localImportState = await runtimeValue(client, `(() => new Promise((resolve) => {
+      const solver = document.getElementById('rece-solver-select');
+      solver.value = 'reef3d';
+      solver.dispatchEvent(new Event('change', { bubbles: true }));
+      const mode = document.getElementById('rece-reef-input-mode');
+      mode.value = 'local_directory';
+      mode.dispatchEvent(new Event('change', { bubbles: true }));
+      const originalFetch = window.fetch.bind(window);
+      let phase = 'running';
+      let cancelCalled = false;
+      let outputPickerCalled = false;
+      const runRequests = [];
+      window.fetch = async (url, options = {}) => {
+        const textUrl = String(url);
+        if (textUrl.includes('/api/runs') && String(options.method || '').toUpperCase() === 'POST' && options.body) {
+          const body = JSON.parse(String(options.body));
+          runRequests.push(body);
+          if (body.mode === 'view') {
+            return new Response(JSON.stringify({
+              id: 'mock-view-run',
+              status: 'complete',
+              phase: 'complete',
+              frame_count: 0,
+              config_url: '/mock-view-run/assets/config.json',
+              manifest_url: '/mock-view-run/manifest',
+            }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+          }
+          if (body.mode === 'solve') {
+            return new Response(JSON.stringify({
+              id: 'mock-solve-run',
+              status: 'queued',
+              phase: 'queued',
+              frame_count: 0,
+              status_url: '/api/runs/mock-solve-run/status',
+              cancel_url: '/api/runs/mock-solve-run/cancel',
+            }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+          }
+        }
+        if (textUrl.includes('/api/runs/mock-solve-run/status')) {
+          return new Response(JSON.stringify({
+            id: 'mock-solve-run',
+            status: 'complete',
+            phase: 'complete',
+            frame_count: 0,
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (textUrl.includes('/mock-import-running/status')) {
+          return new Response(JSON.stringify({
+            id: 'mock-import-running',
+            status: 'running',
+            phase: 'scanning',
+            files_scanned: 7,
+            bytes_scanned: 2048,
+            estimated_total_bytes: 4096,
+            progress: 0.42,
+            eta_seconds: 12,
+            cancel_url: '/mock-import-running/cancel',
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (textUrl.includes('/mock-import-running/cancel')) {
+          cancelCalled = true;
+          return new Response(JSON.stringify({
+            id: 'mock-import-running',
+            status: 'cancelled',
+            phase: 'cancelled',
+            files_scanned: 7,
+            bytes_scanned: 2048,
+            progress: 0,
+          }), { status: 202, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (textUrl.includes('/mock-import-complete/status')) {
+          return new Response(JSON.stringify({
+            id: 'mock-import-complete',
+            status: 'complete',
+            phase: 'complete',
+            files_scanned: 12,
+            bytes_scanned: 8192,
+            estimated_total_bytes: 8192,
+            progress: 1,
+            eta_seconds: 0,
+            result_index_url: '/mock-import-complete/result_index',
+            lod_manifest_url: '/mock-import-complete/lod/manifest',
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (textUrl.includes('/mock-import-complete/result_index')) {
+          return new Response(JSON.stringify({
+            summary: { free_surface_files: 2, volume_field_files: 1, diagnostic_logs: 3 },
+            result_files: [
+              { id: 'fsf', category: 'free_surface', relative_path: 'REEF3D_NHFLOW_VTP_FSF/f0.vtp', url: '/mock-file/fsf' },
+              { id: 'vol', category: 'volume_field', relative_path: 'REEF3D_NHFLOW_VTU/u0.vtu', url: '/mock-file/vol' },
+            ],
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (textUrl.includes('/mock-import-complete/lod/manifest')) {
+          return new Response(JSON.stringify({
+            default_lod_factor: 4,
+            lod_levels: [
+              { factor: 2, is_default: false, visualization_grid: { width: 2000, height: 1000 } },
+              { factor: 4, is_default: true, visualization_grid: { width: 1000, height: 500 } },
+            ],
+          }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return originalFetch(url, options);
+      };
+      window.pywebview = {
+        api: {
+          choose_case_directory: async () => {
+            if (phase === 'complete') {
+              return { id: 'mock-import-complete', status_url: '/mock-import-complete/status', cancel_url: '/mock-import-complete/cancel' };
+            }
+            return { id: 'mock-import-running', status_url: '/mock-import-running/status', cancel_url: '/mock-import-running/cancel' };
+          },
+          choose_run_output_directory: async () => {
+            outputPickerCalled = true;
+            return { path: 'D:/AAA/rece_mock_output', token: 'mock-output-token' };
+          },
+        },
+      };
+      const choose = document.getElementById('rece-choose-case-directory-btn');
+      choose.click();
+      setTimeout(() => {
+        const progressBeforeCancel = Number(document.getElementById('rece-import-progress')?.value || 0);
+        const etaText = document.getElementById('rece-import-eta')?.textContent || '';
+        document.getElementById('rece-cancel-import-btn')?.click();
+        setTimeout(() => {
+          const cancelStatus = document.getElementById('rece-custom-run-status')?.textContent || '';
+          phase = 'complete';
+          choose.click();
+          setTimeout(() => {
+            const panel = document.getElementById('rece-local-import-panel');
+            const style = getComputedStyle(panel);
+            const lod = document.getElementById('rece-lod-select');
+            const options = [...lod.options].map((option) => ({ value: option.value, text: option.textContent, selected: option.selected }));
+            const resultText = document.getElementById('rece-result-index')?.textContent || '';
+            const loadButton = document.getElementById('rece-load-lod-viewer-btn');
+            const solveButton = document.getElementById('rece-run-local-solve-btn');
+            const loadInitiallyEnabled = !loadButton.disabled;
+            const solveInitiallyEnabled = !solveButton.disabled;
+            loadButton.click();
+            setTimeout(() => {
+              solveButton.click();
+              setTimeout(() => {
+                window.fetch = originalFetch;
+                delete window.pywebview;
+                const viewRequest = runRequests.find((body) => body.mode === 'view');
+                const solveRequest = runRequests.find((body) => body.mode === 'solve');
+                resolve({
+                  modeValue: mode.value,
+                  panelVisible: style.display !== 'none' && style.visibility !== 'hidden',
+                  progressBeforeCancel,
+                  etaText,
+                  cancelCalled,
+                  cancelStatus,
+                  lodDisabled: lod.disabled,
+                  lodOptions: options,
+                  resultText,
+                  hasRawVsLodText: /Scientific source: raw REEF3D outputs/.test(resultText) && /Celeris LOD cache/.test(resultText),
+                  loadInitiallyEnabled,
+                  solveInitiallyEnabled,
+                  outputPickerCalled,
+                  runRequests,
+                  viewRequest,
+                  solveRequest,
+                  solveStatus: document.getElementById('rece-custom-run-status')?.textContent || '',
+                });
+              }, 500);
+            }, 250);
+          }, 500);
+        }, 250);
+      }, 350);
+    }))()`);
+
     const missingFilesStatus = panelState.missingFilesStatus || "";
 
     const apiMissing = await postForm(new URL("/api/runs", serverInfo.url).toString(), {
@@ -416,7 +603,10 @@ async function main() {
     const cancelResponse = await fetch(new URL("/api/runs/not-a-run/cancel", serverInfo.url), { method: "POST" });
     const apiCancelUnknown = { status: cancelResponse.status, body: await cancelResponse.json().catch(() => ({})) };
 
-    await runtimeValue(client, `(() => {
+    const runtimeInfo = await runtimeValue(client, `(() => window.RECE_RUNTIME_INFO || {})()`);
+    let celerisState = null;
+    if (!runtimeInfo.package_mode) {
+      await runtimeValue(client, `(() => {
       document.querySelector('[data-lang="en"]')?.click();
       const solver = document.getElementById('rece-solver-select');
       solver.value = 'celeris';
@@ -428,24 +618,32 @@ async function main() {
       return true;
     })()`);
 
-    const celerisStart = Date.now();
-    let celerisState = null;
-    while (Date.now() - celerisStart < 30000) {
+      const celerisStart = Date.now();
+      while (Date.now() - celerisStart < 30000) {
+        celerisState = await runtimeValue(client, `(() => ({
+          selectedExample: document.getElementById('run_example-select')?.value,
+          canvasWidth: document.getElementById('webgpuCanvas')?.width || 0,
+          canvasHeight: document.getElementById('webgpuCanvas')?.height || 0,
+          statusText: document.getElementById('simstatus-container')?.innerText || '',
+        }))()`);
+        const logs = consoleLogs(client.events);
+        if (
+          celerisState.selectedExample === "0"
+          && celerisState.canvasWidth > 300
+          && logs.some((entry) => /Using Celeris equations|Compute \/ Render loop starting/i.test(entry.text))
+        ) {
+          break;
+        }
+        await sleep(1000);
+      }
+    } else {
       celerisState = await runtimeValue(client, `(() => ({
-        selectedExample: document.getElementById('run_example-select')?.value,
+        packageModeSkipped: true,
+        selectedExample: document.getElementById('run_example-select')?.value || '',
         canvasWidth: document.getElementById('webgpuCanvas')?.width || 0,
         canvasHeight: document.getElementById('webgpuCanvas')?.height || 0,
         statusText: document.getElementById('simstatus-container')?.innerText || '',
       }))()`);
-      const logs = consoleLogs(client.events);
-      if (
-        celerisState.selectedExample === "0"
-        && celerisState.canvasWidth > 300
-        && logs.some((entry) => /Using Celeris equations|Compute \/ Render loop starting/i.test(entry.text))
-      ) {
-        break;
-      }
-      await sleep(1000);
     }
 
     const screenshot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
@@ -470,19 +668,42 @@ async function main() {
         && panelState.hasRightsText
         && lockHintState.visible
         && lockHintState.hasCnHint
+        && uploadLimitState.ok === false
+        && uploadLimitState.hasEnglish
+        && uploadLimitState.hasChinese
+        && localImportState.panelVisible
+        && localImportState.progressBeforeCancel > 0.4
+        && localImportState.cancelCalled
+        && /cancelled|已取消/i.test(localImportState.cancelStatus)
+        && localImportState.lodDisabled === false
+        && localImportState.lodOptions.some((option) => option.value === "4" && option.selected)
+        && localImportState.hasRawVsLodText
+        && localImportState.loadInitiallyEnabled
+        && localImportState.solveInitiallyEnabled
+        && localImportState.outputPickerCalled
+        && localImportState.viewRequest?.mode === "view"
+        && localImportState.viewRequest?.lod_factor === 4
+        && localImportState.solveRequest?.mode === "solve"
+        && localImportState.solveRequest?.output_token === "mock-output-token"
+        && localImportState.solveRequest?.params?.mpi_ranks === 4
         && apiMissing.status === 400
         && apiBadZip.status === 400
         && apiCancelUnknown.status === 404
-        && celerisState?.selectedExample === "0"
-        && celerisState?.canvasWidth > 300
+        && (
+          runtimeInfo.package_mode
+          || (celerisState?.selectedExample === "0" && celerisState?.canvasWidth > 300)
+        )
         && unexpectedLogs.length === 0
       ),
       appUrl: serverInfo.url,
       serverInfo,
       chromePath,
       cdpPort,
+      runtimeInfo,
       panelState,
       lockHintState,
+      uploadLimitState,
+      localImportState,
       missingFilesStatus,
       apiMissing,
       apiBadZip,

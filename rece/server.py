@@ -11,12 +11,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from .imports import IMPORT_MANAGER
 from .jobs import MANAGER
-from .paths import HK_SCENARIO, PACKAGE_MODE, SCENARIOS_ROOT, TMP_ROOT, WEB_ROOT, ensure_rece_write, is_under, mkdir_rece, runtime_info
+from .paths import HK_SCENARIO, PACKAGE_MODE, SCENARIOS_ROOT, TMP_ROOT, UPLOAD_LIMIT_BYTES, WEB_ROOT, ensure_rece_write, is_under, local_import_supported, mkdir_rece, runtime_info
 
 
 RUNS: dict[str, dict[str, object]] = {}
-MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+MAX_UPLOAD_BYTES = UPLOAD_LIMIT_BYTES
 
 
 def _json(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, object]) -> None:
@@ -41,19 +42,44 @@ def _serve_file(handler: BaseHTTPRequestHandler, path: Path) -> None:
         _json(handler, 404, {"error": f"not found: {path.name}"})
         return
     ctype = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    body = path.read_bytes()
+    size = path.stat().st_size
     handler.send_response(200)
     handler.send_header("Content-Type", ctype)
     handler.send_header("Cache-Control", "no-store")
-    handler.send_header("Content-Length", str(len(body)))
+    handler.send_header("Content-Length", str(size))
     handler.end_headers()
-    handler.wfile.write(body)
+    with path.open("rb") as f:
+        while True:
+            chunk = f.read(1024 * 1024)
+            if not chunk:
+                break
+            handler.wfile.write(chunk)
+
+
+def _read_json_body(handler: BaseHTTPRequestHandler) -> dict[str, object]:
+    try:
+        length = int(handler.headers.get("Content-Length", "0"))
+    except ValueError:
+        raise ValueError("invalid Content-Length") from None
+    if length > MAX_UPLOAD_BYTES:
+        raise ValueError("Request body exceeds 1 GiB limit")
+    body = handler.rfile.read(length)
+    payload = json.loads(body.decode("utf-8") or "{}")
+    if not isinstance(payload, dict):
+        raise ValueError("JSON body must be an object")
+    return payload
 
 
 def _parse_multipart(handler: BaseHTTPRequestHandler) -> tuple[dict[str, str], dict[str, Path]]:
     content_type = handler.headers.get("Content-Type", "")
     if not content_type.startswith("multipart/form-data"):
         raise ValueError("POST /api/runs requires multipart/form-data")
+    try:
+        content_length = int(handler.headers.get("Content-Length", "0"))
+    except ValueError:
+        raise ValueError("invalid Content-Length") from None
+    if content_length > MAX_UPLOAD_BYTES:
+        raise ValueError("Multipart upload exceeds 1 GiB limit")
     upload_dir = mkdir_rece(TMP_ROOT / "uploads" / uuid.uuid4().hex)
     form = cgi.FieldStorage(
         fp=handler.rfile,
@@ -91,7 +117,7 @@ def _parse_multipart(handler: BaseHTTPRequestHandler) -> tuple[dict[str, str], d
                         break
                     size += len(chunk)
                     if size > MAX_UPLOAD_BYTES:
-                        raise ValueError(f"Uploaded file exceeds 100 MB limit: {safe_name}")
+                        raise ValueError(f"Uploaded file exceeds 1 GiB limit: {safe_name}")
                     f.write(chunk)
             uploads[mapped] = target
         else:
@@ -126,6 +152,50 @@ class RECEHandler(BaseHTTPRequestHandler):
         if path == "/api/runtime":
             _json(self, 200, runtime_info())
             return
+        if path.startswith("/api/imports/"):
+            parts = path.strip("/").split("/")
+            if len(parts) >= 3:
+                import_id = parts[2]
+                if len(parts) == 4 and parts[3] == "status":
+                    status = IMPORT_MANAGER.public_status(import_id)
+                    if status is None:
+                        _json(self, 404, {"error": "unknown import id"})
+                    else:
+                        _json(self, 200, status)
+                    return
+                if len(parts) == 4 and parts[3] == "result_index":
+                    result_index = IMPORT_MANAGER.result_index(import_id)
+                    if result_index is None:
+                        _json(self, 404, {"error": "unknown import id or result index is not ready"})
+                    else:
+                        _json(self, 200, result_index)
+                    return
+                if len(parts) == 5 and parts[3] == "files":
+                    local_file = IMPORT_MANAGER.file_path(import_id, parts[4])
+                    if local_file is None:
+                        _json(self, 404, {"error": "unknown import file"})
+                    else:
+                        _serve_file(self, local_file)
+                    return
+                if len(parts) == 5 and parts[3] == "lod" and parts[4] == "manifest":
+                    manifest = IMPORT_MANAGER.manifest_path(import_id)
+                    if manifest is None:
+                        _json(self, 404, {"error": "unknown import id or LOD manifest is not ready"})
+                    else:
+                        _serve_file(self, manifest)
+                    return
+                if len(parts) == 6 and parts[3] == "lod" and parts[5] == "manifest":
+                    try:
+                        factor = int(parts[4])
+                    except ValueError:
+                        _json(self, 404, {"error": "invalid LOD factor"})
+                        return
+                    manifest = IMPORT_MANAGER.manifest_path(import_id, factor)
+                    if manifest is None:
+                        _json(self, 404, {"error": "unknown import id or LOD factor"})
+                    else:
+                        _serve_file(self, manifest)
+                    return
         if path == f"/api/scenarios/{HK_SCENARIO}/manifest":
             manifest = SCENARIOS_ROOT / HK_SCENARIO / "frames_manifest.json"
             if not manifest.exists():
@@ -204,6 +274,38 @@ class RECEHandler(BaseHTTPRequestHandler):
         path = unquote(parsed.path)
         if path == "/api/runs":
             try:
+                content_type = self.headers.get("Content-Type", "")
+                if content_type.startswith("application/json"):
+                    payload = _read_json_body(self)
+                    import_id = str(payload.get("import_id") or "").strip()
+                    if not import_id:
+                        _json(self, 400, {"error": "JSON POST /api/runs requires import_id"})
+                        return
+                    mode = str(payload.get("mode") or "view").strip().lower()
+                    lod_factor_raw = payload.get("lod_factor")
+                    lod_factor = int(lod_factor_raw) if lod_factor_raw not in {None, ""} else None
+                    if mode == "view":
+                        job = MANAGER.create_import_viewer_job(import_id=import_id, lod_factor=lod_factor)
+                    elif mode == "solve":
+                        params = payload.get("params") or {}
+                        if not isinstance(params, dict):
+                            raise ValueError("params must be a JSON object")
+                        output_path = str(payload.get("output_path") or "")
+                        output_token = str(payload.get("output_token") or "")
+                        if not output_path or not output_token:
+                            _json(self, 400, {"error": "Local import solve mode requires output_path and output_token"})
+                            return
+                        job = MANAGER.create_import_solve_job(
+                            import_id=import_id,
+                            output_path=output_path,
+                            output_token=output_token,
+                            params=params,
+                        )
+                    else:
+                        _json(self, 400, {"error": "JSON POST /api/runs mode must be view or solve"})
+                        return
+                    _json(self, 202, job)
+                    return
                 fields, uploads = _parse_multipart(self)
                 solver = fields.get("solver", "reef3d")
                 if solver != "reef3d":
@@ -226,6 +328,36 @@ class RECEHandler(BaseHTTPRequestHandler):
                 _json(self, 400, {"error": str(exc)})
                 return
             _json(self, 202, job)
+            return
+
+        if path == "/api/imports":
+            try:
+                if not local_import_supported():
+                    _json(self, 403, {"error": "Local directory import is disabled for this runtime"})
+                    return
+                payload = _read_json_body(self)
+                source_path = str(payload.get("path") or "")
+                token = str(payload.get("token") or "")
+                if not source_path or not token:
+                    _json(self, 400, {"error": "path and token are required"})
+                    return
+                job = IMPORT_MANAGER.create_import_from_authorized(source_path, token)
+            except PermissionError as exc:
+                _json(self, 403, {"error": str(exc)})
+                return
+            except Exception as exc:  # noqa: BLE001
+                _json(self, 400, {"error": str(exc)})
+                return
+            _json(self, 202, job)
+            return
+
+        if path.startswith("/api/imports/") and path.endswith("/cancel"):
+            import_id = path.split("/")[3]
+            status = IMPORT_MANAGER.cancel(import_id)
+            if status is None:
+                _json(self, 404, {"error": "unknown import id"})
+            else:
+                _json(self, 202, status)
             return
 
         if path.startswith("/api/runs/") and path.endswith("/cancel"):

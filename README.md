@@ -151,6 +151,8 @@ When `Solver Mode` is `REEF3D backend job`, Celeris-WebGPU is used as the render
 
 ## REEF3D Upload Workflows
 
+Browser uploads are limited to 1 GiB per request/file. Larger native REEF3D cases should be imported from a local directory in the Windows desktop app.
+
 ### Celeris-Style Custom Input
 
 Upload:
@@ -174,20 +176,36 @@ The zip must contain:
 
 `config.json` or `rece_metadata.json` must include at least `WIDTH`, `HEIGHT`, `dx`, `dy`, and `seaLevel`.
 
+### Local REEF3D Case Directory
+
+In the Windows desktop app, choose `Use local REEF3D case directory` and select a case directory. RECE indexes the directory in place without copying large result files, detects native `.pvtp/.vtp` free-surface outputs, `.pvtu/.vtu` volume fields, and REEF3D diagnostic logs, then builds Celeris LOD visualization frames under RECE runtime data.
+
+The raw REEF3D files remain the scientific result source. Celeris LOD frames are an interactive visualization cache only. To rerun the imported case, choose an output directory when prompted; RECE creates a separate `RECE_Run_<run_id>` working directory there and runs REEF3D from that copy.
+
 ## API
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | `GET` | `/api/health` | Local service health check. |
 | `GET` | `/api/runtime` | Runtime mode, resource roots, package status, solver binary checks. |
-| `POST` | `/api/runs` | Create a REEF3D job from uploaded Celeris files or a native REEF3D zip. |
+| `POST` | `/api/runs` | Create a REEF3D job from uploaded files, load an imported LOD viewer, or run an imported local case copy. |
 | `GET` | `/api/runs/{id}/status` | Read phase, progress, frame count, logs, manifest/config URLs, and errors. |
 | `GET` | `/api/runs/{id}/manifest` | Read the growing external-frame manifest. |
 | `GET` | `/api/runs/{id}/frames/{name}` | Stream converted `state_*.bin` and `velocity_*.bin` frames. |
 | `GET` | `/api/runs/{id}/assets/{name}` | Read generated `config.json`, `bathy.txt`, `waves.txt`, and overlay assets. |
 | `POST` | `/api/runs/{id}/cancel` | Cancel a still-running custom REEF3D job. |
+| `GET` | `/api/imports/{id}/status` | Read local directory import/index/LOD progress. |
+| `POST` | `/api/imports/{id}/cancel` | Cancel local import, indexing, or LOD generation. |
+| `GET` | `/api/imports/{id}/result_index` | Read indexed raw REEF3D outputs and diagnostic logs. |
+| `GET` | `/api/imports/{id}/lod/manifest` | Read imported case LOD level metadata. |
+| `GET` | `/api/imports/{id}/lod/{factor}/manifest` | Read a specific LOD frame manifest. |
+| `GET` | `/api/imports/{id}/files/{file_id}` | Open an indexed raw result/log file from the authorized import root. |
 
-`POST /api/runs` rejects invalid numeric parameters with HTTP 400 instead of silently clamping them. `mpi_ranks` must be `1..16`, `output_frames` must be `1..500`, and wave/output timing fields must be finite and within the UI limits.
+`GET /api/runtime` includes `upload_limit_bytes`, `local_import_supported`, `max_default_lod_cells`, and `desktop_directory_picker_supported`.
+
+`POST /api/runs` rejects invalid numeric parameters with HTTP 400 instead of silently clamping them. `mpi_ranks` must be `1..1024`, `output_frames` must be `1..500`, and wave/output timing fields must be finite and within the UI limits.
+
+For imported local cases, JSON `POST /api/runs` supports `{"import_id":"...","mode":"view","lod_factor":8}` to load an existing LOD cache, and `{"import_id":"...","mode":"solve","output_path":"...","output_token":"...","params":{...}}` to run a copied case in a user-selected output directory.
 
 Run frame manifests keep browser-relative frame values such as `frames/state_000000.bin`; `/api/runs/{id}/frames/{name}` accepts either that manifest value or the bare filename `state_000000.bin`.
 

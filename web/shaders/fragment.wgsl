@@ -827,7 +827,8 @@ fn fs_main(@location(1) uv: vec2<f32>) -> FragmentOutput {
     if (globals.CB_show == 1  && (photorealistic == 0  || uv.y > 0.8) ) {
         let colorbar_LL = vec2<f32>(globals.CB_xstart_uv, 0.0);
         let colorbar_width = globals.CB_width_uv;
-        let colorbar_height = f32(globals.CB_ystart + 20) / f32(globals.HEIGHT) * grid_ratio; // 20 pixels above tick marks
+        let colorbar_height_raw = f32(globals.CB_ystart + 20) / f32(globals.HEIGHT) * grid_ratio; // 20 pixels above tick marks
+        let colorbar_height = clamp(colorbar_height_raw, 0.025, 0.075);
         let colorbar_UR = vec2<f32>(colorbar_LL.x + colorbar_width, colorbar_LL.y + colorbar_height);
         let colorbar_buffer =  vec4<f32>(globals.CB_xbuffer_uv, globals.CB_xbuffer_uv, colorbar_LL.y, 0.5*globals.CB_xbuffer_uv);
 

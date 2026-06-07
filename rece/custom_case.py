@@ -10,7 +10,7 @@ from typing import Mapping
 
 import numpy as np
 
-from .paths import RECE_ROOT, SCENARIOS_ROOT, ensure_rece_write, mkdir_rece, rel_to_rece, write_text_rece
+from .paths import RECE_ROOT, SCENARIOS_ROOT, UPLOAD_LIMIT_BYTES, ensure_rece_write, is_under, mkdir_rece, rel_to_rece, write_text_rece
 
 
 CUSTOM_RUNS_ROOT = SCENARIOS_ROOT / "custom_runs"
@@ -41,6 +41,10 @@ class PreparedCase:
     input_mode: str
     mpi_ranks: int
     output_frames: int
+    allowed_source_root: Path | None = None
+    external_output_dir: Path | None = None
+    source_grid: dict[str, object] | None = None
+    warnings: tuple[str, ...] = ()
 
 
 def normalize_params(params: Mapping[str, object] | None) -> dict[str, object]:
@@ -76,7 +80,7 @@ def normalize_params(params: Mapping[str, object] | None) -> dict[str, object]:
         return value
 
     return {
-        "mpi_ranks": as_int("mpi_ranks", 4, minimum=1, maximum=16),
+        "mpi_ranks": as_int("mpi_ranks", 4, minimum=1, maximum=1024),
         "wave_height": as_float("wave_height", DEFAULT_WAVE_HEIGHT, minimum=0.0),
         "wave_period": as_float("wave_period", DEFAULT_WAVE_PERIOD, minimum=0.1),
         "wave_direction": as_float("wave_direction", 0.0),
@@ -95,7 +99,7 @@ def _read_config(path: Path) -> dict[str, object]:
     return config
 
 
-def _grid_from_config(config: Mapping[str, object]) -> tuple[int, int, float, float, float]:
+def _grid_from_config_unbounded(config: Mapping[str, object]) -> tuple[int, int, float, float, float]:
     try:
         width = int(config["WIDTH"])
         height = int(config["HEIGHT"])
@@ -104,6 +108,15 @@ def _grid_from_config(config: Mapping[str, object]) -> tuple[int, int, float, fl
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("config.json must include numeric WIDTH, HEIGHT, dx, and dy") from exc
     sea_level = float(config.get("seaLevel", config.get("sea_level", 0.0)))
+    if width <= 0 or height <= 0:
+        raise ValueError("WIDTH and HEIGHT must be positive")
+    if dx <= 0.0 or dy <= 0.0:
+        raise ValueError("dx and dy must be positive")
+    return width, height, dx, dy, sea_level
+
+
+def _grid_from_config(config: Mapping[str, object]) -> tuple[int, int, float, float, float]:
+    width, height, dx, dy, sea_level = _grid_from_config_unbounded(config)
     validate_grid(width, height, dx, dy)
     return width, height, dx, dy, sea_level
 
@@ -374,10 +387,10 @@ def safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
             name = info.filename.replace("\\", "/")
             if name.startswith("/") or name.startswith("../") or "/../" in name or name in {".", ".."}:
                 raise ValueError(f"Unsafe zip member path: {info.filename}")
-            if info.file_size > 100 * 1024 * 1024:
-                raise ValueError(f"Zip member exceeds 100 MB limit: {info.filename}")
+            if info.file_size > UPLOAD_LIMIT_BYTES:
+                raise ValueError(f"Zip member exceeds 1 GiB limit: {info.filename}")
             destination = ensure_rece_write(target_dir / name)
-            if not str(destination).startswith(str(target_dir.resolve())):
+            if not is_under(destination, target_dir):
                 raise ValueError(f"Unsafe zip member path: {info.filename}")
             destination.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(info) as src, destination.open("wb") as dst:
@@ -482,6 +495,155 @@ def prepare_from_reef3d_zip(
         int(normalized["mpi_ranks"]),
         int(normalized["output_frames"]),
     )
+
+
+LOCAL_SOLVE_EXCLUDED_DIR_NAMES = {
+    "frames",
+    "lod",
+    "viewer_runs",
+    "screenshots",
+    "REEF3D_NHFLOW_VTP_FSF",
+    "REEF3D_NHFLOW_VTP_BED",
+    "REEF3D_NHFLOW_VTU",
+    "REEF3D_Log",
+    "REEF3D_Log-Probes",
+    "REEF3D_Log-Wave",
+    "runup_logs",
+    "volume_logs",
+}
+LOCAL_SOLVE_EXCLUDED_SUFFIXES = {".pvtp", ".vtp", ".pvtu", ".vtu", ".bin"}
+
+
+def prepare_from_local_import_case(
+    run_id: str,
+    *,
+    source_case_dir: Path,
+    source_root: Path,
+    output_root: Path,
+    params: Mapping[str, object],
+) -> PreparedCase:
+    source_case_dir = Path(source_case_dir).resolve()
+    source_root = Path(source_root).resolve()
+    output_root = Path(output_root).resolve()
+    if not source_case_dir.exists() or not source_case_dir.is_dir():
+        raise ValueError(f"Local REEF3D case directory does not exist: {source_case_dir}")
+    if not is_under(source_case_dir, source_root):
+        raise ValueError(f"Local REEF3D case directory must stay under the import root: {source_case_dir}")
+    if not output_root.exists() or not output_root.is_dir():
+        raise ValueError(f"Run output path is not a directory: {output_root}")
+
+    run_dir = mkdir_rece(CUSTOM_RUNS_ROOT / run_id)
+    assets_dir = mkdir_rece(run_dir / "assets")
+    mkdir_rece(run_dir / "frames")
+    external_run_dir = (output_root / f"RECE_Run_{run_id}").resolve()
+    if not is_under(external_run_dir, output_root):
+        raise ValueError(f"Local solve output directory must stay under {output_root}: {external_run_dir}")
+    case_dir = external_run_dir / "reef3d_case"
+    case_dir.mkdir(parents=True, exist_ok=False)
+    _copy_local_case_inputs(source_case_dir, case_dir)
+
+    config_path_in = _find_named_file(case_dir, "config.json")
+    metadata_path = _find_named_file(case_dir, "rece_metadata.json")
+    bathy_path = _find_named_file(case_dir, "bathy.txt")
+    if bathy_path is None:
+        raise ValueError("Local REEF3D solve requires bathy.txt for LOD visualization after the run")
+    if config_path_in is not None:
+        config = _read_config(config_path_in)
+        width, height, dx, dy, sea_level = _grid_from_config_unbounded(config)
+    elif metadata_path is not None:
+        config = _read_config(metadata_path)
+        width, height, dx, dy, sea_level = _grid_from_config_unbounded(config)
+    else:
+        raise ValueError("Local REEF3D solve requires config.json or rece_metadata.json with WIDTH, HEIGHT, dx, and dy")
+
+    bathy = load_bathy(bathy_path, width, height)
+    base_depth = infer_base_depth(config, bathy)
+    normalized = normalize_params(params)
+    if "mpi_ranks" not in dict(params or {}):
+        case_mpi = infer_case_mpi_ranks(case_dir)
+        if case_mpi is not None:
+            normalized["mpi_ranks"] = case_mpi
+    _apply_native_case_params(case_dir, normalized, params)
+    validate_mpi_partition_files(case_dir, int(normalized["mpi_ranks"]))
+
+    out_config = external_celeris_config(
+        run_id,
+        config,
+        width=width,
+        height=height,
+        dx=dx,
+        dy=dy,
+        sea_level=sea_level,
+        base_depth=base_depth,
+        has_overlay=False,
+    )
+    write_text_rece(assets_dir / "waves.txt", default_waves_text(normalized))
+    _write_prepare_manifest(run_id, run_dir, "local_import_solve", out_config, normalized, False)
+    source_grid = {
+        "width": width,
+        "height": height,
+        "dx": dx,
+        "dy": dy,
+        "sea_level": sea_level,
+        "cell_count": width * height,
+    }
+    warnings: list[str] = []
+    if width > MAX_GRID_WIDTH or height > MAX_GRID_HEIGHT or width * height > MAX_GRID_CELLS:
+        warnings.append(
+            "Local native REEF3D solve bypasses the small browser-upload grid limit; Celeris will use LOD visualization frames."
+        )
+    return PreparedCase(
+        run_id,
+        run_dir,
+        case_dir,
+        assets_dir,
+        bathy_path,
+        assets_dir / "config.json",
+        width,
+        height,
+        dx,
+        dy,
+        sea_level,
+        "local_import_solve",
+        int(normalized["mpi_ranks"]),
+        int(normalized["output_frames"]),
+        allowed_source_root=external_run_dir,
+        external_output_dir=external_run_dir,
+        source_grid=source_grid,
+        warnings=tuple(warnings),
+    )
+
+
+def _copy_local_case_inputs(source: Path, destination: Path) -> None:
+    source = source.resolve()
+    destination = destination.resolve()
+    for item in source.iterdir():
+        target = destination / item.name
+        if item.is_dir():
+            if _skip_local_solve_dir(item.name):
+                continue
+            shutil.copytree(item, target, ignore=_ignore_local_solve_outputs)
+        elif item.is_file():
+            if item.suffix.lower() in LOCAL_SOLVE_EXCLUDED_SUFFIXES:
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(item, target)
+
+
+def _skip_local_solve_dir(name: str) -> bool:
+    lower = name.lower()
+    return any(lower == excluded.lower() for excluded in LOCAL_SOLVE_EXCLUDED_DIR_NAMES)
+
+
+def _ignore_local_solve_outputs(directory: str, names: list[str]) -> set[str]:
+    ignored: set[str] = set()
+    for name in names:
+        path = Path(directory) / name
+        if path.is_dir() and _skip_local_solve_dir(name):
+            ignored.add(name)
+        elif path.is_file() and path.suffix.lower() in LOCAL_SOLVE_EXCLUDED_SUFFIXES:
+            ignored.add(name)
+    return ignored
 
 
 def _apply_native_case_params(case_dir: Path, normalized: dict[str, object], raw_params: Mapping[str, object]) -> None:

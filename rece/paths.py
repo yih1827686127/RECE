@@ -57,6 +57,7 @@ RESOURCE_ROOT = _resource_root()
 RUNTIME_MODE = _runtime_mode()
 PLATFORM = _platform_key()
 PACKAGE_MODE = RUNTIME_MODE in {"package", "runtime", "installed", "frozen"}
+DESKTOP_CONTEXT = os.environ.get("RECE_DESKTOP_CONTEXT", "").strip().lower() in {"1", "true", "yes", "on"}
 RECE_ROOT = _user_data_root() if PACKAGE_MODE else RESOURCE_ROOT
 AAA_ROOT = RESOURCE_ROOT.parent
 DATA_ROOT = Path(os.environ.get("RECE_SOURCE_DATA_ROOT", AAA_ROOT / "hk_dtm_example")).resolve()
@@ -67,6 +68,16 @@ TMP_ROOT = RECE_ROOT / "tmp"
 THIRD_PARTY_ROOT = RESOURCE_ROOT / "third_party"
 REEF3D_ROOT = THIRD_PARTY_ROOT / "REEF3D"
 HK_SCENARIO = "hk_victoria_smoke"
+UPLOAD_LIMIT_BYTES = 1024**3
+MAX_DEFAULT_LOD_CELLS = int(os.environ.get("RECE_MAX_DEFAULT_LOD_CELLS", "4000000"))
+
+
+def local_import_supported() -> bool:
+    return DESKTOP_CONTEXT or os.environ.get("RECE_ENABLE_LOCAL_IMPORT", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def desktop_directory_picker_supported() -> bool:
+    return local_import_supported() and os.name == "nt"
 
 
 def _solver_bin_dir() -> Path:
@@ -192,4 +203,8 @@ def runtime_info() -> dict[str, object]:
         "divemesh_bin_exists": DIVEMESH_BIN.exists(),
         "mpiexec": str(mpiexec) if mpiexec is not None else "",
         "mpiexec_exists": mpiexec is not None,
+        "upload_limit_bytes": UPLOAD_LIMIT_BYTES,
+        "local_import_supported": local_import_supported(),
+        "max_default_lod_cells": MAX_DEFAULT_LOD_CELLS,
+        "desktop_directory_picker_supported": desktop_directory_picker_supported(),
     }

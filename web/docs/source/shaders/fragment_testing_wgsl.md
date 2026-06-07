@@ -14,6 +14,9 @@ The main pipeline fetches `fragment.wgsl` for normal rendering. This file is pre
 
 Because it is close to the main fragment shader, it can be used to compare rendering experiments without losing the production visualization path.
 
+The testing variant mirrors the production colorbar screen-height clamp so LOD
+visualization checks remain comparable.
+
 ## Change Notes
 
 If changes from this file are promoted into `fragment.wgsl`, also update `Handler_Render.js`, colorbar labels, and render-cache docs if any sampled channel or surface mode changes.

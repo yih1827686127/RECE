@@ -31,6 +31,12 @@ There is no formal schema. This file is effectively the schema, and many fields 
 - Sediment erosion, Shields, and fall velocity values.
 - Canvas, colorbar, and render layout values.
 
+Canvas render size is display-oriented rather than a direct copy of the
+simulation grid dimensions. This keeps small LOD/external REEF3D frame caches
+from being rendered into a tiny bitmap that is then enlarged by CSS, and it
+caps very large grids to a browser-friendly render target while preserving the
+domain aspect ratio.
+
 ## Change Notes
 
 Adding a new config key usually requires more than adding a default here. Check whether it needs to be loaded from example JSON, shown in the UI, uploaded into a uniform buffer, and declared in WGSL. If a value is derived here, UI edits may overwrite a manually assigned value on the next `html_update`.

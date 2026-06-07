@@ -19,6 +19,10 @@ const MESSAGES = {
     en: 'Please upload all the required files.',
     cn: '请上传所有必需文件。'
   },
+  'upload.tooLarge': {
+    en: '{name} is {size}; browser uploads are limited to {limit}. Use local directory import for larger REEF3D cases.',
+    cn: '{name} 大小为 {size}；浏览器上传限制为 {limit}。更大的 REEF3D case 请使用本地目录导入。'
+  },
   'error.webgpuUnsupported': {
     en: 'WebGPU is not supported in this browser.',
     cn: '此浏览器不支持 WebGPU。'
@@ -89,7 +93,14 @@ const EXACT_CN = {
   'REEF3D Input': 'REEF3D 输入',
   'Use uploaded Celeris config/bathy/waves': '使用上传的 Celeris 配置 / 水深 / 波浪文件',
   'Use native REEF3D case zip': '使用原生 REEF3D case zip',
+  'Use local REEF3D case directory': '使用本地 REEF3D case 目录',
   'Load REEF3D Case ZIP [geo.dat, control.txt, ctrl.txt]': '加载 REEF3D Case ZIP [geo.dat, control.txt, ctrl.txt]',
+  'Choose Local Case Directory': '选择本地 Case 目录',
+  'Cancel Import': '取消导入',
+  'Celeris LOD visualization level': 'Celeris LOD 可视化层级',
+  'No LOD cache loaded': '未加载 LOD 缓存',
+  'Load selected LOD viewer': '加载所选 LOD 播放器',
+  'Run REEF3D to output directory': '运行 REEF3D 到输出目录',
   'MPI ranks': 'MPI 进程数',
   'Output frames': '输出帧数',
   'Wave height (m)': '波高 (m)',

@@ -59,10 +59,7 @@ class JobManager:
         control_override: str | None = None,
         ctrl_override: str | None = None,
     ) -> dict[str, object]:
-        with self._lock:
-            active = [job for job in self._jobs.values() if job.get("status") in ACTIVE_STATUSES]
-            if active:
-                raise RuntimeError("A REEF3D job is already running. Cancel it or wait for it to finish.")
+        self._ensure_no_active_solver()
 
         run_id = uuid.uuid4().hex
         if input_mode == "celeris_files":
@@ -116,6 +113,106 @@ class JobManager:
         thread.start()
         return self.public_status(run_id) or job
 
+    def create_import_viewer_job(self, *, import_id: str, lod_factor: int | None = None) -> dict[str, object]:
+        from .imports import IMPORT_MANAGER
+
+        run_id = uuid.uuid4().hex
+        prepared = IMPORT_MANAGER.prepare_viewer_run(import_id, run_id, lod_factor=lod_factor)
+        log_dir = mkdir_rece(CUSTOM_LOG_ROOT / run_id)
+        job = {
+            "id": run_id,
+            "solver": "reef3d",
+            "input_mode": "local_import",
+            "status": "complete",
+            "phase": "complete",
+            "progress": 1.0,
+            "frame_count": int(prepared["frame_count"]),
+            "status_url": f"/api/runs/{run_id}/status",
+            "manifest_url": f"/api/runs/{run_id}/manifest",
+            "config_url": f"/api/runs/{run_id}/assets/config.json",
+            "overlay_url": "",
+            "cancel_url": "",
+            "created_at": time.time(),
+            "completed_at": time.time(),
+            "run_dir": str(prepared["run_dir"]),
+            "case_dir": "",
+            "assets_dir": str(prepared["assets_dir"]),
+            "logs_dir": str(log_dir),
+            "frames_dir": str(prepared["frames_dir"]),
+            "manifest_path": str(prepared["manifest_path"]),
+            "import_id": import_id,
+            "lod_factor": int(prepared["lod_factor"]),
+            "lod_manifest_url": str(prepared["lod_manifest_url"]),
+            "native_results_url": f"/api/imports/{import_id}/result_index",
+            "source_grid": prepared.get("source_grid"),
+            "visualization_grid": prepared.get("visualization_grid"),
+            "logs_tail": "",
+            "last_conversion_error": "",
+        }
+        with self._lock:
+            self._jobs[run_id] = job
+        return self.public_status(run_id) or job
+
+    def create_import_solve_job(
+        self,
+        *,
+        import_id: str,
+        output_path: str,
+        output_token: str,
+        params: Mapping[str, object],
+    ) -> dict[str, object]:
+        from .imports import IMPORT_MANAGER
+
+        self._ensure_no_active_solver()
+        run_id = uuid.uuid4().hex
+        prepared = IMPORT_MANAGER.prepare_solver_run(
+            import_id,
+            run_id,
+            output_path=output_path,
+            output_token=output_token,
+            params=params,
+        )
+        log_dir = mkdir_rece(CUSTOM_LOG_ROOT / run_id)
+        job = {
+            "id": run_id,
+            "solver": "reef3d",
+            "input_mode": "local_import_solve",
+            "status": "queued",
+            "phase": "queued",
+            "progress": 0.0,
+            "frame_count": 0,
+            "mpi_ranks": prepared.mpi_ranks,
+            "output_frames": prepared.output_frames,
+            "status_url": f"/api/runs/{run_id}/status",
+            "manifest_url": f"/api/runs/{run_id}/manifest",
+            "config_url": f"/api/runs/{run_id}/assets/config.json",
+            "overlay_url": "",
+            "cancel_url": f"/api/runs/{run_id}/cancel",
+            "created_at": time.time(),
+            "run_dir": str(prepared.run_dir),
+            "case_dir": str(prepared.case_dir),
+            "assets_dir": str(prepared.assets_dir),
+            "logs_dir": str(log_dir),
+            "external_output_dir": str(prepared.external_output_dir or ""),
+            "source_grid": prepared.source_grid,
+            "visualization_grid": None,
+            "warnings": list(prepared.warnings),
+            "logs_tail": "",
+            "last_conversion_error": "",
+        }
+        self._write_empty_manifest(prepared, complete=False)
+        with self._lock:
+            self._jobs[run_id] = job
+        thread = threading.Thread(target=self._run_reef3d_job, args=(prepared, prepared.mpi_ranks), daemon=True)
+        thread.start()
+        return self.public_status(run_id) or job
+
+    def _ensure_no_active_solver(self) -> None:
+        with self._lock:
+            active = [job for job in self._jobs.values() if job.get("status") in ACTIVE_STATUSES]
+            if active:
+                raise RuntimeError("A REEF3D job is already running. Cancel it or wait for it to finish.")
+
     def get_job(self, run_id: str) -> dict[str, object] | None:
         with self._lock:
             job = self._jobs.get(run_id)
@@ -126,10 +223,14 @@ class JobManager:
             job = self._jobs.get(run_id)
             if job is None:
                 return None
-            public = {key: value for key, value in job.items() if key not in {"run_dir", "case_dir", "assets_dir", "logs_dir"}}
+            public = {
+                key: value
+                for key, value in job.items()
+                if key not in {"run_dir", "case_dir", "assets_dir", "logs_dir", "frames_dir", "manifest_path"}
+            }
             public["paths"] = {
                 "run_dir": rel_to_rece(job["run_dir"]),
-                "case_dir": rel_to_rece(job["case_dir"]),
+                "case_dir": rel_to_rece(job["case_dir"]) if job.get("case_dir") else "",
                 "assets_dir": rel_to_rece(job["assets_dir"]),
                 "logs_dir": rel_to_rece(job["logs_dir"]),
             }
@@ -156,6 +257,9 @@ class JobManager:
     def _run_reef3d_job(self, prepared: PreparedCase, mpi_ranks: int) -> None:
         run_id = prepared.run_id
         try:
+            if prepared.input_mode == "local_import_solve":
+                self._run_local_import_solve_job(prepared, mpi_ranks)
+                return
             self._update(run_id, status="running", phase="divemesh", started_at=time.time(), progress=0.05)
             self._run_process(run_id, [str(DIVEMESH_BIN)], prepared.case_dir, "divemesh", timeout=900)
 
@@ -200,12 +304,181 @@ class JobManager:
             if frame_count < prepared.output_frames:
                 raise RuntimeError(f"REEF3D completed with {frame_count} converted frames; expected {prepared.output_frames}")
             self._update(run_id, status="complete", phase="complete", progress=1.0, completed_at=time.time())
+        except InterruptedError:
+            self._update_logs_tail(run_id)
+            self._update(run_id, status="cancelled", phase="cancelled", completed_at=time.time())
         except Exception as exc:  # noqa: BLE001
             self._update_logs_tail(run_id)
             self._update(run_id, status="failed", phase="failed", error=str(exc), completed_at=time.time())
         finally:
             with self._lock:
                 self._processes.pop(run_id, None)
+
+    def _run_local_import_solve_job(self, prepared: PreparedCase, mpi_ranks: int) -> None:
+        run_id = prepared.run_id
+        self._update(run_id, status="running", phase="divemesh", started_at=time.time(), progress=0.05)
+        self._run_process(run_id, [str(DIVEMESH_BIN)], prepared.case_dir, "divemesh", timeout=900)
+
+        self._update(run_id, phase="reef3d", progress=0.15)
+        reef_args = self._reef3d_args(mpi_ranks, prepared.input_mode)
+        log_dir = mkdir_rece(CUSTOM_LOG_ROOT / run_id)
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        stdout_file = (log_dir / "reef3d_stdout.log").open("w", encoding="utf-8")
+        stderr_file = (log_dir / "reef3d_stderr.log").open("w", encoding="utf-8")
+        process = subprocess.Popen(
+            reef_args,
+            cwd=prepared.case_dir,
+            text=True,
+            stdout=stdout_file,
+            stderr=stderr_file,
+            creationflags=creationflags,
+            env=_external_solver_env(),
+        )
+        with self._lock:
+            self._processes[run_id] = process
+        try:
+            while process.poll() is None:
+                if self._cancel_requested(run_id):
+                    process.terminate()
+                    self._update(run_id, status="cancelled", phase="cancelled", completed_at=time.time())
+                    return
+                self._update_logs_tail(run_id)
+                time.sleep(1.5)
+        finally:
+            stdout_file.close()
+            stderr_file.close()
+
+        return_code = process.returncode
+        self._update_logs_tail(run_id)
+        if return_code != 0:
+            raise RuntimeError(f"reef3d failed with exit code {return_code}")
+        self._finalize_local_import_lod(prepared)
+
+    def _finalize_local_import_lod(self, prepared: PreparedCase) -> None:
+        from .lod import build_lod_cache, selected_lod_level
+        from .result_index import scan_reef3d_directory
+
+        run_id = prepared.run_id
+        cancel_event = threading.Event()
+
+        def check_cancel() -> None:
+            if self._cancel_requested(run_id):
+                cancel_event.set()
+
+        def scan_progress(payload: dict[str, object]) -> None:
+            check_cancel()
+            self._update(
+                run_id,
+                phase="indexing_results",
+                progress=0.60,
+                files_scanned=int(payload.get("files_scanned", 0)),
+                bytes_scanned=int(payload.get("bytes_scanned", 0)),
+                estimated_total_bytes=int(payload.get("estimated_total_bytes", 0)),
+            )
+
+        self._update(run_id, phase="indexing_results", progress=0.55)
+        index = scan_reef3d_directory(prepared.case_dir, cancel_event=cancel_event, progress_callback=scan_progress)
+        if cancel_event.is_set():
+            raise InterruptedError("run cancelled")
+        index.pop("all_files", None)
+        write_text_rece(prepared.run_dir / "result_index.json", json.dumps(index, indent=2) + "\n")
+        self._update(run_id, phase="lod_generating", progress=0.65)
+
+        def lod_progress(payload: dict[str, object]) -> None:
+            check_cancel()
+            progress = max(0.65, float(payload.get("progress", 0.65)))
+            self._update(run_id, phase=str(payload.get("phase", "lod_generating")), progress=min(0.96, progress))
+
+        lod_manifest = build_lod_cache(
+            run_id,
+            prepared.case_dir,
+            prepared.run_dir,
+            index,
+            cancel_event=cancel_event,
+            progress_callback=lod_progress,
+        )
+        if cancel_event.is_set():
+            raise InterruptedError("run cancelled")
+        level = selected_lod_level(lod_manifest)
+        if level is None:
+            raise RuntimeError("REEF3D completed but no LOD visualization frames could be generated")
+        viewer = self._prepare_lod_viewer_assets(prepared, lod_manifest, int(level["factor"]))
+        self._update(
+            run_id,
+            status="complete",
+            phase="complete",
+            progress=1.0,
+            frame_count=int(viewer["frame_count"]),
+            lod_factor=int(viewer["lod_factor"]),
+            lod_manifest_url=f"/api/runs/{run_id}/lod/manifest",
+            frames_dir=str(viewer["frames_dir"]),
+            manifest_path=str(viewer["manifest_path"]),
+            assets_dir=str(viewer["assets_dir"]),
+            source_grid=viewer.get("source_grid"),
+            visualization_grid=viewer.get("visualization_grid"),
+            completed_at=time.time(),
+        )
+
+    def _prepare_lod_viewer_assets(self, prepared: PreparedCase, master: dict[str, object], factor: int) -> dict[str, object]:
+        import shutil
+
+        import numpy as np
+
+        from .lod import selected_lod_level
+
+        level = selected_lod_level(master, factor)
+        if level is None:
+            raise ValueError("selected LOD factor is not available")
+        level_dir = prepared.run_dir / "lod" / f"factor_{factor}"
+        frame_manifest_path = level_dir / "frames_manifest.json"
+        frame_manifest = json.loads(frame_manifest_path.read_text(encoding="utf-8"))
+        assets_dir = mkdir_rece(prepared.assets_dir)
+        bathy_src = level_dir / f"bathy_lod_{factor}.txt"
+        bathy_dst = ensure_rece_write(assets_dir / "bathy.txt")
+        shutil.copy2(bathy_src, bathy_dst)
+        write_text_rece(assets_dir / "waves.txt", "NumberOfWaves 0\n")
+        grid = frame_manifest.get("visualization_grid") or {
+            "width": frame_manifest["width"],
+            "height": frame_manifest["height"],
+            "dx": frame_manifest["dx"],
+            "dy": frame_manifest["dy"],
+            "lod_factor": factor,
+        }
+        bathy = np.loadtxt(bathy_dst, dtype=np.float32)
+        base_depth = float(np.clip(np.percentile(-bathy[bathy < 0.0], 95), 1.0, 1000.0)) if np.any(bathy < 0.0) else 1.0
+        config = {
+            "WIDTH": int(grid["width"]),
+            "HEIGHT": int(grid["height"]),
+            "dx": float(grid["dx"]),
+            "dy": float(grid["dy"]),
+            "seaLevel": float(frame_manifest.get("sea_level", 0.0)),
+            "base_depth": base_depth,
+            "run_example": -1,
+            "externalSolver": "reef3d",
+            "externalFrameManifest": f"/api/runs/{prepared.run_id}/manifest",
+            "externalFrameStride": 1,
+            "render_step": 1,
+            "setRenderStep": 1,
+            "useBreakingModel": 0,
+            "useSedTransModel": 0,
+            "ShowLogos": 1,
+            "GoogleMapOverlay": 0,
+            "receSourceType": "raw REEF3D output",
+            "receVisualizationType": "Celeris LOD visualization cache",
+            "sourceGrid": frame_manifest.get("source_grid") or frame_manifest.get("original_grid"),
+            "visualizationGrid": frame_manifest.get("visualization_grid"),
+            "lod": frame_manifest.get("lod"),
+        }
+        write_text_rece(assets_dir / "config.json", json.dumps(config, indent=2) + "\n")
+        return {
+            "lod_factor": factor,
+            "frames_dir": level_dir / "frames",
+            "manifest_path": frame_manifest_path,
+            "assets_dir": assets_dir,
+            "frame_count": len(frame_manifest.get("frames", [])),
+            "source_grid": frame_manifest.get("source_grid") or frame_manifest.get("original_grid"),
+            "visualization_grid": frame_manifest.get("visualization_grid"),
+        }
 
     def _reef3d_args(self, mpi_ranks: int, input_mode: str = "celeris_files") -> list[str]:
         if not REEF3D_BIN.exists():
@@ -361,14 +634,17 @@ class JobManager:
         parts = name.split("/")
         if any(part in {"", ".", ".."} for part in parts) or ":" in name:
             return None
-        path = ensure_rece_write(Path(str(job["run_dir"])) / "frames" / name)
-        frames = (Path(str(job["run_dir"])) / "frames").resolve()
+        frames_root = Path(str(job.get("frames_dir") or (Path(str(job["run_dir"])) / "frames"))).resolve()
+        path = ensure_rece_write(frames_root / name)
+        frames = frames_root.resolve()
         return path if frames == path.resolve().parent or frames in path.resolve().parents else None
 
     def manifest_path(self, run_id: str) -> Path | None:
         job = self.get_job(run_id)
         if job is None:
             return None
+        if job.get("manifest_path"):
+            return ensure_rece_write(Path(str(job["manifest_path"])))
         return ensure_rece_write(Path(str(job["run_dir"])) / "frames_manifest.json")
 
 

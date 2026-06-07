@@ -1,5 +1,5 @@
 ﻿// import source files
-import { calc_constants, timeSeriesData, loadConfig, init_sim_parameters } from './constants_load_calc.js';  // variables and functions needed for init_sim_parameters
+import { calc_constants, timeSeriesData, loadConfig, init_sim_parameters, update_canvas_display_dimensions } from './constants_load_calc.js';  // variables and functions needed for init_sim_parameters
 import { loadDepthSurface, loadInitCondSurface, loadFrictionSurface, loadHardBottomSurface, loadWaveData, loadOverlay, CreateGoogleMapImage, calculateGoogleMapScaleAndOffset, loadImageBitmap, loadUserImage, loadCubeBitmaps} from './File_Loader.js';  // load depth surface and wave data file
 import { readTextureData, downloadTextureData, downloadObjectAsFile, handleFileSelect, loadJsonIntoCalcConstants, saveRenderedImageAsJPEG, saveSingleValueToFile, saveTextureSlicesAsImages, createAnimatedGifFromTexture, writeSurfaceData, sleep} from './File_Writer.js';  // load depth surface and wave data file
 import { readCornerPixelData, readToolTipTextureData, downloadTimeSeriesData, resetTimeSeriesData} from './Time_Series.js';  // time series functions
@@ -42,6 +42,44 @@ const canvas = document.getElementById('webgpuCanvas');
 
 // Access the WebGPU object. This is the entry point to the WebGPU API.
 const gpu = navigator.gpu;
+const RECE_UPLOAD_LIMIT_BYTES = 1024 ** 3;
+
+function currentUploadLimitBytes() {
+    const runtimeLimit = Number(window.RECE_RUNTIME_INFO?.upload_limit_bytes || 0);
+    return Number.isFinite(runtimeLimit) && runtimeLimit > 0 ? runtimeLimit : RECE_UPLOAD_LIMIT_BYTES;
+}
+
+function formatBytes(bytes) {
+    const value = Number(bytes || 0);
+    if (value >= 1024 ** 3) {
+        return `${(value / (1024 ** 3)).toFixed(2)} GiB`;
+    }
+    if (value >= 1024 ** 2) {
+        return `${(value / (1024 ** 2)).toFixed(1)} MiB`;
+    }
+    if (value >= 1024) {
+        return `${(value / 1024).toFixed(1)} KiB`;
+    }
+    return `${value} B`;
+}
+
+function validateReceUploadFiles(files) {
+    const limit = currentUploadLimitBytes();
+    const oversized = Array.from(files || []).find((file) => Number(file?.size || 0) > limit);
+    if (!oversized) {
+        return true;
+    }
+    const name = oversized.name || 'file';
+    const size = formatBytes(oversized.size);
+    const limitText = formatBytes(limit);
+    alert(`${name} is ${size}; browser uploads are limited to ${limitText}. Use local directory import for larger REEF3D cases.\n${name} 大小为 ${size}；浏览器上传限制为 ${limitText}。更大的 REEF3D case 请使用本地目录导入。`);
+    return false;
+}
+
+window.RECE_TEST_HOOKS = {
+    ...(window.RECE_TEST_HOOKS || {}),
+    validateUploadFiles: validateReceUploadFiles,
+};
 
 function showStartupError(message) {
     const status = document.getElementById('simstatus-container') || document.getElementById('console');
@@ -2443,10 +2481,12 @@ async function initializeWebGPUApp(configContent, bathymetryContent, waveContent
 
             // CODEX: Protect the bottom colorbar except in the Ocean/photo-realistic free-surface view.
             const designColorbarVisible = calc_constants.CB_show == 1 && !(calc_constants.surfaceToPlot == 0 && calc_constants.colorMap_choice == 0);
+            const designColorbarUvHeightRaw = ((calc_constants.CB_ystart + 20) / calc_constants.HEIGHT * grid_ratio);
+            const designColorbarUvHeight = Math.min(0.075, Math.max(0.025, designColorbarUvHeightRaw));
             const designColorbarProtectedHeight = designColorbarVisible
                 ? Math.min(
                     canvas.height - 1,
-                    Math.ceil(((calc_constants.CB_ystart + 20) / calc_constants.HEIGHT * grid_ratio + 0.5 * calc_constants.CB_xbuffer_uv) * canvas.height)
+                    Math.ceil((designColorbarUvHeight + 0.5 * calc_constants.CB_xbuffer_uv) * canvas.height)
                 )
                 : 0;
 
@@ -3829,18 +3869,7 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         } else {
             // Set canvas size back to normal when exiting full screen
-            if (grid_ratio >= 1.0) {
-                canvas.width = Math.ceil(calc_constants.WIDTH/64*grid_ratio)*64;  // width needs to have a multiple of 256 bytes per row.  Data will have four channels (rgba), so mulitple os 256/4 = 64;
-                canvas.height = Math.round(calc_constants.HEIGHT * canvas.width / calc_constants.WIDTH / grid_ratio);
-                calc_constants.canvas_width_ratio = 1/grid_ratio;
-                calc_constants.canvas_height_ratio = 1.0; 
-            }
-            else {
-                canvas.width = Math.ceil(calc_constants.WIDTH/64)*64;  // width needs to have a multiple of 256 bytes per row.  Data will have four channels (rgba), so mulitple os 256/4 = 64;
-                canvas.height = Math.round(calc_constants.HEIGHT * canvas.width / calc_constants.WIDTH / grid_ratio);
-                calc_constants.canvas_width_ratio = grid_ratio;
-                calc_constants.canvas_height_ratio = 1.0; 
-            }
+            update_canvas_display_dimensions(canvas);
         }
     }
 
@@ -4037,6 +4066,14 @@ document.addEventListener('DOMContentLoaded', function () {
     function onFileUpload(event) {
         var inputId = event.target.id;
         var label = document.querySelector('label[for=' + inputId + ']');
+        if (event.target.files.length > 0 && !validateReceUploadFiles(event.target.files)) {
+            event.target.value = '';
+            if (label) {
+                label.style.backgroundColor = '';
+                label.style.color = '';
+            }
+            return;
+        }
         if (event.target.files.length > 0) {
             label.style.backgroundColor = '#4CAF50';  // for example, green
             label.style.color = 'white';
@@ -4142,6 +4179,13 @@ document.addEventListener('DOMContentLoaded', function () {
     fileInputs.forEach(function (input) {
         input.addEventListener('change', onFileUpload);
     });
+    document.addEventListener('drop', function (event) {
+        const files = event.dataTransfer?.files || [];
+        if (files.length > 0 && !validateReceUploadFiles(files)) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
 
     // Download JSON
     document.getElementById('download-button').addEventListener('click', function () {
@@ -4221,6 +4265,16 @@ document.addEventListener('DOMContentLoaded', function () {
     const receReefControls = document.getElementById('rece-reef3d-controls');
     const receInputModeSelect = document.getElementById('rece-reef-input-mode');
     const receZipPanel = document.getElementById('rece-reef-zip-panel');
+    const receLocalImportPanel = document.getElementById('rece-local-import-panel');
+    const receChooseCaseDirectoryButton = document.getElementById('rece-choose-case-directory-btn');
+    const receCancelImportButton = document.getElementById('rece-cancel-import-btn');
+    const receLoadLodViewerButton = document.getElementById('rece-load-lod-viewer-btn');
+    const receRunLocalSolveButton = document.getElementById('rece-run-local-solve-btn');
+    const receImportProgressWrap = document.getElementById('rece-import-progress-wrap');
+    const receImportProgress = document.getElementById('rece-import-progress');
+    const receImportEta = document.getElementById('rece-import-eta');
+    const receResultIndex = document.getElementById('rece-result-index');
+    const receLodSelect = document.getElementById('rece-lod-select');
     const receRunCustomButton = document.getElementById('rece-run-custom-reef3d-btn');
     const receCancelButton = document.getElementById('rece-cancel-run-btn');
     const receCustomStatus = document.getElementById('rece-custom-run-status');
@@ -4230,6 +4284,20 @@ document.addEventListener('DOMContentLoaded', function () {
     let activeRecePollTimer = null;
     let lastReceCustomStatus = null;
     let receMpiRanksTouched = false;
+    let activeReceImportId = null;
+    let activeReceImportStatusUrl = null;
+    let activeReceImportCancelUrl = null;
+    let activeReceImportPollTimer = null;
+    let activeReceImportComplete = false;
+
+    function setReceLocalImportActionState(enabled) {
+        if (receLoadLodViewerButton) {
+            receLoadLodViewerButton.disabled = !enabled;
+        }
+        if (receRunLocalSolveButton) {
+            receRunLocalSolveButton.disabled = !enabled;
+        }
+    }
 
     function syncReceSolverControls() {
         const solver = receSolverSelect?.value || 'celeris';
@@ -4238,6 +4306,9 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (receZipPanel) {
             receZipPanel.classList.toggle('rece-runner-hidden', receInputModeSelect?.value !== 'reef3d_zip');
+        }
+        if (receLocalImportPanel) {
+            receLocalImportPanel.classList.toggle('rece-runner-hidden', receInputModeSelect?.value !== 'local_directory');
         }
         setExternalSolverControlState(isReceReef3dModeActive());
     }
@@ -4249,9 +4320,20 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    function setReceCustomStatusText(text) {
+        lastReceCustomStatus = { text };
+        if (receCustomStatus) {
+            receCustomStatus.textContent = text;
+        }
+    }
+
     document.addEventListener('celeris-language-change', () => {
         if (lastReceCustomStatus) {
-            setReceCustomStatusKey(lastReceCustomStatus.key, lastReceCustomStatus.params);
+            if (lastReceCustomStatus.text) {
+                setReceCustomStatusText(lastReceCustomStatus.text);
+            } else {
+                setReceCustomStatusKey(lastReceCustomStatus.key, lastReceCustomStatus.params);
+            }
         }
     });
 
@@ -4295,7 +4377,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     function readReceRunParams() {
         const definitions = [
-            ['mpi_ranks', 'rece-mpi-ranks-input', { integer: true, min: 1, max: 16 }],
+            ['mpi_ranks', 'rece-mpi-ranks-input', { integer: true, min: 1, max: 1024 }],
             ['output_frames', 'rece-output-frames-input', { integer: true, min: 1, max: 500 }],
             ['wave_height', 'rece-wave-height-input', { min: 0 }],
             ['wave_period', 'rece-wave-period-input', { min: 0.1 }],
@@ -4332,6 +4414,178 @@ document.addEventListener('DOMContentLoaded', function () {
         return response.blob();
     }
 
+    function updateReceImportProgress(payload) {
+        const progress = Math.max(0, Math.min(1, Number(payload.progress || 0)));
+        if (receImportProgressWrap) {
+            receImportProgressWrap.classList.remove('rece-runner-hidden');
+        }
+        if (receImportProgress) {
+            receImportProgress.value = progress;
+        }
+        if (receImportEta) {
+            const eta = Number(payload.eta_seconds);
+            const etaText = Number.isFinite(eta) && eta > 0 ? `ETA ${Math.ceil(eta)}s / 剩余约 ${Math.ceil(eta)} 秒` : 'ETA pending / 正在估算';
+            receImportEta.textContent = `${etaText}; scanned ${payload.files_scanned || 0} files, ${formatBytes(payload.bytes_scanned || 0)} / 已扫描 ${payload.files_scanned || 0} 个文件，${formatBytes(payload.bytes_scanned || 0)}`;
+        }
+        const percent = Math.round(progress * 100);
+        setReceCustomStatusText(`Import ${payload.status}: ${payload.phase}; ${payload.files_scanned || 0} files; ${percent}% / 导入 ${payload.status}：${payload.phase}；${payload.files_scanned || 0} 个文件；${percent}%`);
+    }
+
+    async function loadReceImportResultIndex(statusPayload) {
+        if (!statusPayload?.result_index_url || !receResultIndex) {
+            return;
+        }
+        const response = await fetch(statusPayload.result_index_url, { cache: 'no-store' });
+        if (!response.ok) {
+            return;
+        }
+        const index = await response.json();
+        const summary = index.summary || {};
+        receResultIndex.textContent = '';
+        const message = document.createElement('span');
+        message.textContent = `Scientific source: raw REEF3D outputs. Visualization: Celeris LOD cache. Free surface ${summary.free_surface_files || 0}; volume fields ${summary.volume_field_files || 0}; diagnostic logs ${summary.diagnostic_logs || 0}. / 科研结果源：原始 REEF3D 输出。可视化：Celeris LOD 缓存。自由面 ${summary.free_surface_files || 0}；体场 ${summary.volume_field_files || 0}；诊断日志 ${summary.diagnostic_logs || 0}。`;
+        receResultIndex.appendChild(message);
+        const files = Array.isArray(index.result_files) ? index.result_files.slice(0, 8) : [];
+        if (files.length > 0) {
+            const list = document.createElement('ul');
+            list.style.margin = '6px 0 0 16px';
+            files.forEach((item) => {
+                const row = document.createElement('li');
+                const link = document.createElement('a');
+                link.href = item.url || '#';
+                link.textContent = `${item.category}: ${item.relative_path}`;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                row.appendChild(link);
+                list.appendChild(row);
+            });
+            receResultIndex.appendChild(list);
+        }
+    }
+
+    async function loadReceLodManifest(statusPayload) {
+        if (!statusPayload?.lod_manifest_url || !receLodSelect) {
+            return null;
+        }
+        const response = await fetch(statusPayload.lod_manifest_url, { cache: 'no-store' });
+        if (!response.ok) {
+            return null;
+        }
+        const manifest = await response.json();
+        const levels = Array.isArray(manifest.lod_levels) ? manifest.lod_levels : [];
+        receLodSelect.innerHTML = '';
+        if (levels.length === 0) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'No LOD cache loaded';
+            receLodSelect.appendChild(option);
+            receLodSelect.disabled = true;
+            return manifest;
+        }
+        levels.forEach((level) => {
+            const grid = level.visualization_grid || {};
+            const option = document.createElement('option');
+            option.value = String(level.factor);
+            option.textContent = `${level.factor}x LOD - ${grid.width || '?'}x${grid.height || '?'} cells${level.is_default ? ' (default)' : ''}`;
+            if (level.is_default) {
+                option.selected = true;
+            }
+            receLodSelect.appendChild(option);
+        });
+        receLodSelect.disabled = false;
+        return manifest;
+    }
+
+    async function pollReceImportStatus(statusUrl) {
+        const response = await fetch(statusUrl, { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok) {
+            throw new Error(payload.error || `HTTP ${response.status}`);
+        }
+        updateReceImportProgress(payload);
+        activeReceImportCancelUrl = payload.cancel_url || activeReceImportCancelUrl;
+        if (payload.status === 'complete') {
+            activeReceImportComplete = true;
+            receCancelImportButton.disabled = true;
+            await loadReceImportResultIndex(payload);
+            await loadReceLodManifest(payload);
+            setReceLocalImportActionState(true);
+            setReceCustomStatusText('Local import complete. Raw REEF3D outputs are indexed; Celeris LOD frames are visualization cache. / 本地导入完成。原始 REEF3D 输出已索引；Celeris LOD 帧是可视化缓存。');
+            return;
+        }
+        if (payload.status === 'failed') {
+            receCancelImportButton.disabled = true;
+            setReceLocalImportActionState(false);
+            setReceCustomStatusText(`Local import failed: ${payload.error || 'unknown error'} / 本地导入失败：${payload.error || '未知错误'}`);
+            return;
+        }
+        if (payload.status === 'cancelled') {
+            activeReceImportComplete = false;
+            receCancelImportButton.disabled = true;
+            setReceLocalImportActionState(false);
+            setReceCustomStatusText('Local import cancelled. / 本地导入已取消。');
+            return;
+        }
+        activeReceImportPollTimer = setTimeout(() => {
+            pollReceImportStatus(statusUrl).catch((error) => {
+                console.error('RECE local import poll failed:', error);
+                receCancelImportButton.disabled = true;
+                setReceCustomStatusText(`Local import status error: ${error.message} / 本地导入状态错误：${error.message}`);
+            });
+        }, 1000);
+    }
+
+    async function chooseReceLocalDirectory() {
+        if (!window.pywebview?.api?.choose_case_directory) {
+            setReceCustomStatusText('Local directory import is only available in the RECE desktop app. / 本地目录导入只在 RECE 桌面程序中可用。');
+            return;
+        }
+        setReceCustomStatusText('Opening directory picker... / 正在打开目录选择器...');
+        const payload = await window.pywebview.api.choose_case_directory();
+        if (payload?.cancelled) {
+            setReceCustomStatusText('Local directory import cancelled before selection. / 已取消目录选择。');
+            return;
+        }
+        if (payload?.error) {
+            setReceCustomStatusText(`Local import failed: ${payload.error} / 本地导入失败：${payload.error}`);
+            return;
+        }
+        activeReceImportId = payload.id;
+        activeReceImportStatusUrl = payload.status_url;
+        activeReceImportCancelUrl = payload.cancel_url;
+        activeReceImportComplete = false;
+        setReceLocalImportActionState(false);
+        if (activeReceImportPollTimer) {
+            clearTimeout(activeReceImportPollTimer);
+        }
+        receCancelImportButton.disabled = false;
+        setReceCustomStatusText(`Local import queued: ${activeReceImportId} / 本地导入已排队：${activeReceImportId}`);
+        await pollReceImportStatus(activeReceImportStatusUrl);
+    }
+
+    async function cancelReceLocalImport() {
+        if (!activeReceImportCancelUrl) {
+            return;
+        }
+        if (activeReceImportPollTimer) {
+            clearTimeout(activeReceImportPollTimer);
+            activeReceImportPollTimer = null;
+        }
+        receCancelImportButton.disabled = true;
+        try {
+            const response = await fetch(activeReceImportCancelUrl, { method: 'POST' });
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.error || `HTTP ${response.status}`);
+            }
+            updateReceImportProgress(payload);
+            activeReceImportComplete = payload.status === 'complete';
+            setReceLocalImportActionState(payload.status === 'complete');
+        } catch (error) {
+            setReceCustomStatusText(`Import cancel error: ${error.message} / 取消导入失败：${error.message}`);
+        }
+    }
+
     async function loadReceRunIntoViewer(statusPayload) {
         const configContent = await fetchTextRequired(statusPayload.config_url);
         const bathymetryContent = await fetchTextRequired(`/api/runs/${activeReceRunId}/assets/bathy.txt`);
@@ -4358,18 +4612,27 @@ document.addEventListener('DOMContentLoaded', function () {
         }
         if (payload.status === 'complete') {
             receRunCustomButton.disabled = false;
+            if (receRunLocalSolveButton) {
+                receRunLocalSolveButton.disabled = !activeReceImportComplete;
+            }
             receCancelButton.disabled = true;
             setReceCustomStatusKey('rece.runner.complete', { frameCount });
             return;
         }
         if (payload.status === 'failed') {
             receRunCustomButton.disabled = false;
+            if (receRunLocalSolveButton) {
+                receRunLocalSolveButton.disabled = !activeReceImportComplete;
+            }
             receCancelButton.disabled = true;
             setReceCustomStatusKey('rece.runner.failed', { error: payload.error || payload.last_conversion_error || 'unknown error' });
             return;
         }
         if (payload.status === 'cancelled') {
             receRunCustomButton.disabled = false;
+            if (receRunLocalSolveButton) {
+                receRunLocalSolveButton.disabled = !activeReceImportComplete;
+            }
             receCancelButton.disabled = true;
             setReceCustomStatusKey('rece.runner.cancelled');
             return;
@@ -4378,6 +4641,9 @@ document.addEventListener('DOMContentLoaded', function () {
             pollReceRunStatus(statusUrl).catch((error) => {
                 console.error('RECE run poll failed:', error);
                 receRunCustomButton.disabled = false;
+                if (receRunLocalSolveButton) {
+                    receRunLocalSolveButton.disabled = !activeReceImportComplete;
+                }
                 receCancelButton.disabled = true;
                 setReceCustomStatusKey('rece.runner.statusError', { error: error.message });
             });
@@ -4390,12 +4656,113 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     }
 
+    async function loadReceLocalImportViewer() {
+        if (!activeReceImportId || !activeReceImportComplete) {
+            setReceCustomStatusText('Choose and import a local REEF3D case directory first. / 请先选择并导入本地 REEF3D case 目录。');
+            return;
+        }
+        receLoadLodViewerButton.disabled = true;
+        activeReceRunLoaded = false;
+        setReceCustomStatusText('Loading selected LOD cache into Celeris viewer... / 正在把所选 LOD 缓存加载到 Celeris 播放器...');
+        try {
+            const selectedFactor = receLodSelect?.value ? Number(receLodSelect.value) : null;
+            const response = await fetch('/api/runs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ import_id: activeReceImportId, mode: 'view', lod_factor: selectedFactor }),
+            });
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.error || `HTTP ${response.status}`);
+            }
+            activeReceRunId = payload.id;
+            if (Number(payload.frame_count || 0) > 0) {
+                await loadReceRunIntoViewer(payload);
+            }
+            setReceCustomStatusText(`Loaded ${payload.frame_count || 0} LOD frames. Raw REEF3D outputs remain the scientific source. / 已加载 ${payload.frame_count || 0} 个 LOD 帧。原始 REEF3D 输出仍是科研结果源。`);
+        } catch (error) {
+            console.error('RECE local import viewer failed to start:', error);
+            setReceCustomStatusText(`Local viewer start error: ${error.message} / 本地可视化启动错误：${error.message}`);
+        } finally {
+            receLoadLodViewerButton.disabled = false;
+        }
+    }
+
+    async function startReceLocalSolve() {
+        if (!activeReceImportId || !activeReceImportComplete) {
+            setReceCustomStatusText('Choose and import a local REEF3D case directory first. / 请先选择并导入本地 REEF3D case 目录。');
+            return;
+        }
+        if (!window.pywebview?.api?.choose_run_output_directory) {
+            setReceCustomStatusText('Local REEF3D solve output selection is only available in the RECE desktop app. / 本地 REEF3D 求解输出目录选择只在 RECE 桌面程序中可用。');
+            return;
+        }
+        const runParams = readReceRunParams();
+        if (runParams === null) {
+            return;
+        }
+        receRunCustomButton.disabled = true;
+        receRunLocalSolveButton.disabled = true;
+        receCancelButton.disabled = true;
+        activeReceRunLoaded = false;
+        setReceCustomStatusText('Choose an output directory for the new REEF3D run... / 请选择新的 REEF3D 运行输出目录...');
+        let submitted = false;
+        try {
+            const outputAuth = await window.pywebview.api.choose_run_output_directory();
+            if (outputAuth?.cancelled) {
+                setReceCustomStatusText('Local REEF3D solve cancelled before output selection. / 已取消输出目录选择。');
+                return;
+            }
+            if (outputAuth?.error) {
+                throw new Error(outputAuth.error);
+            }
+            if (!outputAuth?.path || !outputAuth?.token) {
+                throw new Error('output directory authorization was not returned');
+            }
+            const selectedFactor = receLodSelect?.value ? Number(receLodSelect.value) : null;
+            const response = await fetch('/api/runs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    import_id: activeReceImportId,
+                    mode: 'solve',
+                    output_path: outputAuth.path,
+                    output_token: outputAuth.token,
+                    lod_factor: selectedFactor,
+                    params: runParams,
+                }),
+            });
+            const payload = await response.json();
+            if (!response.ok) {
+                throw new Error(payload.error || `HTTP ${response.status}`);
+            }
+            activeReceRunId = payload.id;
+            receCancelButton.disabled = false;
+            submitted = true;
+            setReceCustomStatusText(`Local REEF3D run queued: ${activeReceRunId}. Output directory: ${outputAuth.path} / 本地 REEF3D 运行已排队：${activeReceRunId}。输出目录：${outputAuth.path}`);
+            await pollReceRunStatus(`/api/runs/${activeReceRunId}/status`);
+        } catch (error) {
+            console.error('RECE local REEF3D solve failed to start:', error);
+            receCancelButton.disabled = true;
+            setReceCustomStatusText(`Local REEF3D solve start error: ${error.message} / 本地 REEF3D 求解启动错误：${error.message}`);
+        } finally {
+            if (!submitted) {
+                receRunCustomButton.disabled = false;
+                receRunLocalSolveButton.disabled = !activeReceImportComplete;
+            }
+        }
+    }
+
     async function startCustomReceRun() {
         if (receSolverSelect?.value !== 'reef3d') {
             setReceCustomStatusKey('rece.runner.selectReef3d');
             return;
         }
         const inputMode = receInputModeSelect?.value || 'celeris_files';
+        if (inputMode === 'local_directory') {
+            await startReceLocalSolve();
+            return;
+        }
         const form = new FormData();
         form.append('solver', 'reef3d');
         form.append('input_mode', inputMode);
@@ -4422,12 +4789,24 @@ document.addEventListener('DOMContentLoaded', function () {
                 setReceCustomStatusKey('rece.runner.loadZip');
                 return;
             }
+            if (!validateReceUploadFiles([zipFile])) {
+                return;
+            }
             form.append('reef3d_zip', zipFile);
         } else {
             const configFile = document.getElementById('configFile')?.files?.[0];
             const bathymetryFile = document.getElementById('bathymetryFile')?.files?.[0];
             if (!configFile || !bathymetryFile) {
                 setReceCustomStatusKey('rece.runner.loadCeleris');
+                return;
+            }
+            const uploadFiles = [
+                configFile,
+                bathymetryFile,
+                document.getElementById('waveFile')?.files?.[0],
+                document.getElementById('satimageFile')?.files?.[0],
+            ].filter(Boolean);
+            if (!validateReceUploadFiles(uploadFiles)) {
                 return;
             }
             form.append('celeris_config', configFile);
@@ -4484,6 +4863,15 @@ document.addEventListener('DOMContentLoaded', function () {
     receMpiRanksInput?.addEventListener('input', () => {
         receMpiRanksTouched = true;
     });
+    receChooseCaseDirectoryButton?.addEventListener('click', () => {
+        chooseReceLocalDirectory().catch((error) => {
+            console.error('RECE local directory selection failed:', error);
+            setReceCustomStatusText(`Local import failed: ${error.message} / 本地导入失败：${error.message}`);
+        });
+    });
+    receCancelImportButton?.addEventListener('click', cancelReceLocalImport);
+    receLoadLodViewerButton?.addEventListener('click', loadReceLocalImportViewer);
+    receRunLocalSolveButton?.addEventListener('click', startReceLocalSolve);
     receRunCustomButton?.addEventListener('click', startCustomReceRun);
     receCancelButton?.addEventListener('click', cancelCustomReceRun);
     syncReceSolverControls();
@@ -4520,6 +4908,9 @@ document.addEventListener('DOMContentLoaded', function () {
         var hardbottomFile = document.getElementById('hardbottomFile').files[0];
         var OverlayFile = document.getElementById('satimageFile').files[0];
         var modelFile = document.getElementById('modelFile').files[0];
+        if (!validateReceUploadFiles([configFile, bathymetryFile, waveFile, etaInitialConditionFile, frictionFile, hardbottomFile, OverlayFile, modelFile].filter(Boolean))) {
+            return;
+        }
     
         // Check if the required files are not uploaded
         if (!configFile || !bathymetryFile) {

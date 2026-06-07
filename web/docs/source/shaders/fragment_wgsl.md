@@ -35,6 +35,10 @@ The shader overlays:
 - Time-series dots and outlines.
 - Colorbar background, ticks, labels, and logos from `txDraw`.
 
+The colorbar area is clamped to a small fraction of the screen so low-resolution
+LOD/external solver grids cannot make the bar cover an excessive portion of the
+scientific visualization.
+
 ## Change Notes
 
 This shader is tightly coupled to `Copytxf32_txf16.wgsl`, `Handler_Render.js`, and UI colorbar labels. Surface-mode numbers are an API shared with JavaScript controls.

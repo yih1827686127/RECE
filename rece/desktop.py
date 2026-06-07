@@ -13,7 +13,9 @@ from pathlib import Path
 
 if "--package-mode" in sys.argv:
     os.environ.setdefault("RECE_RUNTIME_MODE", "package")
+os.environ.setdefault("RECE_DESKTOP_CONTEXT", "1")
 
+from .imports import IMPORT_MANAGER  # noqa: E402
 from .jobs import MANAGER  # noqa: E402
 from .paths import DIVEMESH_BIN, PACKAGE_MODE, PLATFORM, RECE_ROOT, REEF3D_BIN, RESOURCE_ROOT, WEB_ROOT, find_mpiexec, runtime_info  # noqa: E402
 from .server import RECEHandler  # noqa: E402
@@ -21,6 +23,38 @@ from .server import RECEHandler  # noqa: E402
 
 APP_TITLE = "RECE"
 DEFAULT_HOST = "127.0.0.1"
+
+
+class RECEDesktopAPI:
+    def choose_case_directory(self) -> dict[str, object]:
+        try:
+            import webview
+
+            if not webview.windows:
+                raise RuntimeError("RECE desktop window is not ready")
+            result = webview.windows[0].create_file_dialog(webview.FileDialog.FOLDER, allow_multiple=False)
+            if not result:
+                return {"cancelled": True}
+            selected = result[0] if isinstance(result, (list, tuple)) else str(result)
+            status = IMPORT_MANAGER.create_desktop_import(selected)
+            return {"cancelled": False, **status}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc)}
+
+    def choose_run_output_directory(self) -> dict[str, object]:
+        try:
+            import webview
+
+            if not webview.windows:
+                raise RuntimeError("RECE desktop window is not ready")
+            result = webview.windows[0].create_file_dialog(webview.FileDialog.FOLDER, allow_multiple=False)
+            if not result:
+                return {"cancelled": True}
+            selected = result[0] if isinstance(result, (list, tuple)) else str(result)
+            auth = IMPORT_MANAGER.authorize_output_directory(selected)
+            return {"cancelled": False, **auth}
+        except Exception as exc:  # noqa: BLE001
+            return {"error": str(exc)}
 
 
 def message_box(title: str, message: str, *, icon: int = 0x40) -> None:
@@ -141,6 +175,7 @@ def run_window(url: str, *, debug: bool) -> None:
     webview.create_window(
         APP_TITLE,
         url,
+        js_api=RECEDesktopAPI(),
         width=1440,
         height=960,
         min_size=(1180, 760),

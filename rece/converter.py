@@ -10,12 +10,19 @@ from scipy.spatial import cKDTree
 from vtkmodules.util.numpy_support import vtk_to_numpy
 from vtkmodules.vtkIOXML import vtkXMLPPolyDataReader, vtkXMLPolyDataReader
 
-from .paths import HK_SCENARIO, SCENARIOS_ROOT, WEB_ROOT, ensure_allowed_read, ensure_rece_write, mkdir_rece, rel_to_rece, write_text_rece
+from .paths import HK_SCENARIO, SCENARIOS_ROOT, WEB_ROOT, ensure_allowed_read, ensure_rece_write, is_under, mkdir_rece, rel_to_rece, write_text_rece
 
 
-def _read_polydata(path: Path):
+def _ensure_source_read(path: Path, allowed_source_root: Path | None = None) -> Path:
+    resolved = Path(path).resolve()
+    if allowed_source_root is not None and is_under(resolved, allowed_source_root):
+        return resolved
+    return ensure_allowed_read(resolved)
+
+
+def _read_polydata(path: Path, allowed_source_root: Path | None = None):
     reader = vtkXMLPPolyDataReader() if path.suffix.lower() == ".pvtp" else vtkXMLPolyDataReader()
-    reader.SetFileName(str(ensure_allowed_read(path)))
+    reader.SetFileName(str(_ensure_source_read(path, allowed_source_root)))
     reader.Update()
     return reader.GetOutput()
 
@@ -35,8 +42,10 @@ def _frame_time(path: Path, index: int) -> float:
     return raw if raw < 10_000 else float(index)
 
 
-def _load_bathy(path: Path, width: int, height: int) -> np.ndarray:
-    bathy = np.loadtxt(ensure_allowed_read(path), dtype=np.float32)
+def _load_bathy(path: Path, width: int, height: int, allowed_source_root: Path | None = None) -> np.ndarray:
+    bathy = np.loadtxt(_ensure_source_read(path, allowed_source_root), dtype=np.float32)
+    if bathy.shape == () and width == 1 and height == 1:
+        bathy = bathy.reshape((1, 1))
     if bathy.shape != (height, width):
         raise RuntimeError(f"Bathymetry shape {bathy.shape} does not match {(height, width)}")
     return bathy
@@ -64,11 +73,13 @@ def convert_reef3d_outputs(
     scenario: str = HK_SCENARIO,
     source_files: list[Path] | None = None,
     complete: bool | None = None,
+    allowed_source_root: Path | None = None,
+    manifest_extras: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    case_dir = ensure_allowed_read(case_dir)
+    case_dir = _ensure_source_read(case_dir, allowed_source_root)
     output_dir = mkdir_rece(output_dir)
     frames_dir = mkdir_rece(output_dir / "frames")
-    bathy = _load_bathy(bathy_path, width, height)
+    bathy = _load_bathy(bathy_path, width, height, allowed_source_root)
 
     if source_files is None:
         fsf_dir = case_dir / "REEF3D_NHFLOW_VTP_FSF"
@@ -76,13 +87,13 @@ def convert_reef3d_outputs(
         if not files:
             files = sorted(fsf_dir.glob("*.vtp"))
     else:
-        files = [ensure_allowed_read(path) for path in source_files]
+        files = [_ensure_source_read(path, allowed_source_root) for path in source_files]
     if not files:
         raise FileNotFoundError(f"No REEF3D free-surface VTP/PVTP files found under {case_dir}")
 
     frames: list[dict[str, object]] = []
     for index, path in enumerate(files):
-        poly = _read_polydata(path)
+        poly = _read_polydata(path, allowed_source_root)
         points = vtk_to_numpy(poly.GetPoints().GetData()).astype(np.float32)
         if points.size == 0:
             raise RuntimeError(f"Frame has no points: {path}")
@@ -146,6 +157,8 @@ def convert_reef3d_outputs(
     }
     if complete is not None:
         manifest["complete"] = bool(complete)
+    if manifest_extras:
+        manifest.update(manifest_extras)
     _write_manifest_atomic(output_dir / "frames_manifest.json", manifest)
     if scenario == HK_SCENARIO:
         web_manifest = WEB_ROOT / "examples" / scenario / "frames_manifest.json"
