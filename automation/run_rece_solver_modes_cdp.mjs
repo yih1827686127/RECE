@@ -283,7 +283,7 @@ async function main() {
   const profileDir = path.join(RECE_ROOT, "tmp", `chrome_profile_rece_solver_modes_${cdpPort}`);
   await fs.rm(profileDir, { recursive: true, force: true });
   await fs.mkdir(profileDir, { recursive: true });
-  const chrome = spawn(chromePath, [
+  const chromeArgs = [
     `--remote-debugging-port=${cdpPort}`,
     "--remote-allow-origins=*",
     `--user-data-dir=${profileDir}`,
@@ -292,7 +292,11 @@ async function main() {
     "--disable-background-networking",
     "--window-size=1400,1000",
     "about:blank",
-  ], { stdio: "ignore", windowsHide: true });
+  ];
+  if (process.platform === "linux") {
+    chromeArgs.splice(-1, 0, "--no-sandbox", "--disable-dev-shm-usage");
+  }
+  const chrome = spawn(chromePath, chromeArgs, { stdio: "ignore", windowsHide: true });
 
   let client;
   try {
