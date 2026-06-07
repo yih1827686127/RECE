@@ -1,6 +1,20 @@
 # RECE 部署与开发接手说明
 
-最后更新：2026-06-05
+最后更新：2026-06-07
+
+## 0F. GitHub 安装指引同步, 2026-06-07
+
+本轮 Linux Release 已更新为从最新源码真实构建的 Ubuntu 24.04 LTS amd64 包，不是 Windows exe 改名。GitHub 首页安装指引需要同步，因为 Linux 便携包的推荐启动命令应使用 `./RECE`，并且用户应从对应平台的 Release 页面下载资产和 `.sha256` 校验文件。
+
+已同步 `README.md`：
+
+- Windows 安装入口明确指向 `https://github.com/yih1827686127/RECE/releases/tag/v0.1.0-windows`。
+- Linux 安装入口明确指向 `https://github.com/yih1827686127/RECE/releases/tag/v0.1.0-linux`。
+- Linux `.deb` 安装流程保留 `sudo apt install ./rece_0.1.0+linux1_amd64.deb` 后运行 `rece`。
+- Linux 便携包流程更新为 `tar -xzf RECE-linux-x86_64.tar.gz`、`cd RECE-linux-x86_64`、`./install-deps.sh`、`./RECE`。
+- Linux 安装前要求运行 `sha256sum -c` 校验对应 `.sha256` 文件。
+
+同时已同步 Linux Release notes，让用户在 GitHub Release 页面也能直接看到下载、校验、`.deb` 安装和便携包启动命令。
 
 ## 0E. Ubuntu Linux packaged release, 2026-06-06
 

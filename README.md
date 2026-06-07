@@ -15,9 +15,15 @@ D:\AAA\hk_dtm_example    # Hong Kong open data, treated as read-only
 
 ### Install from GitHub / 从 GitHub 安装
 
-**中文**：打开 GitHub Releases，下载 `RECE_Setup.exe`，双击运行安装程序。在 `Select Destination Location` 页面可接受默认安装目录，也可点击 Browse 选择自己的安装位置。安装完成后，从桌面快捷方式或开始菜单启动 `RECE.exe`。如果启动器提示缺少 WebView2 Runtime 或 Microsoft MPI，请按提示安装对应运行时后重新打开 `RECE.exe`。
+**中文**：打开 Windows Release 页面下载 `RECE_Setup.exe`，双击运行安装程序。在 `Select Destination Location` 页面可接受默认安装目录，也可点击 Browse 选择自己的安装位置。安装完成后，从桌面快捷方式或开始菜单启动 `RECE.exe`。如果启动器提示缺少 WebView2 Runtime 或 Microsoft MPI，请按提示安装对应运行时后重新打开 `RECE.exe`。
 
-**English**: Open GitHub Releases, download `RECE_Setup.exe`, and run the installer. On the `Select Destination Location` page, accept the default install directory or click Browse to choose a custom location. After installation, launch `RECE.exe` from the Desktop shortcut or the Start Menu. If the launcher reports that WebView2 Runtime or Microsoft MPI is missing, install the prompted runtime and start `RECE.exe` again.
+**English**: Open the Windows Release page, download `RECE_Setup.exe`, and run the installer. On the `Select Destination Location` page, accept the default install directory or click Browse to choose a custom location. After installation, launch `RECE.exe` from the Desktop shortcut or the Start Menu. If the launcher reports that WebView2 Runtime or Microsoft MPI is missing, install the prompted runtime and start `RECE.exe` again.
+
+Windows Release:
+
+```text
+https://github.com/yih1827686127/RECE/releases/tag/v0.1.0-windows
+```
 
 The Windows installer produced by this repo is:
 
@@ -63,7 +69,18 @@ The build script uses `D:\AAA\tools\rece-build-venv` for the PyInstaller Python 
 
 ## Ubuntu Linux Package
 
-The Linux release is separate from the Windows release. Download `rece_0.1.0+linux1_amd64.deb` or `RECE-linux-x86_64.tar.gz` from the GitHub Release titled `RECE Linux packaged release`.
+The Linux release is separate from the Windows release and is built on GitHub Actions Ubuntu 24.04 LTS amd64. Download `rece_0.1.0+linux1_amd64.deb` or `RECE-linux-x86_64.tar.gz` plus the matching `.sha256` file from the Linux Release page:
+
+```text
+https://github.com/yih1827686127/RECE/releases/tag/v0.1.0-linux
+```
+
+Verify the downloaded package before installing or unpacking:
+
+```bash
+sha256sum -c rece_0.1.0+linux1_amd64.deb.sha256
+sha256sum -c RECE-linux-x86_64.tar.gz.sha256
+```
 
 Install the `.deb` on Ubuntu 24.04 LTS amd64:
 
@@ -72,20 +89,13 @@ sudo apt install ./rece_0.1.0+linux1_amd64.deb
 rece
 ```
 
-Use the portable package:
+Use the portable package on Ubuntu 24.04 LTS amd64:
 
 ```bash
 tar -xzf RECE-linux-x86_64.tar.gz
 cd RECE-linux-x86_64
 ./install-deps.sh
-./rece
-```
-
-Linux package integrity:
-
-```bash
-sha256sum -c rece_0.1.0+linux1_amd64.deb.sha256
-sha256sum -c RECE-linux-x86_64.tar.gz.sha256
+./RECE
 ```
 
 Linux runtime policy:
