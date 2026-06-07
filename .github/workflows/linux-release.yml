@@ -37,6 +37,7 @@ jobs:
             libhypre-dev \
             libopenmpi-dev \
             libwebkit2gtk-4.1-0 \
+            curl \
             nodejs \
             npm \
             openmpi-bin \
@@ -90,19 +91,91 @@ jobs:
         run: |
           "$RECE_LINUX_PYTHON" automation/run_linux_solver_smoke.py
 
-      - name: Package-mode UI smoke test
+      - name: Portable package runtime smoke tests
         env:
           CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
-        run: xvfb-run -a node automation/run_rece_packaged_runtime_cdp.mjs
+          RECE_CDP_COMMAND_TIMEOUT_MS: 60000
+        run: |
+          rm -rf tmp/linux-tar-smoke
+          mkdir -p tmp/linux-tar-smoke logs
+          tar -xzf dist/linux/RECE-linux-x86_64.tar.gz -C tmp/linux-tar-smoke
+          tmp/linux-tar-smoke/RECE-linux-x86_64/RECE --print-runtime
+          xvfb-run -a bash <<'BASH'
+          set -euo pipefail
+          app="./tmp/linux-tar-smoke/RECE-linux-x86_64/RECE"
+          port=8796
+          stdout_path="logs/portable_rece_stdout.log"
+          stderr_path="logs/portable_rece_stderr.log"
+          "$app" --port "$port" --debug >"$stdout_path" 2>"$stderr_path" &
+          app_pid=$!
+          cleanup() {
+            if kill -0 "$app_pid" 2>/dev/null; then
+              kill "$app_pid" 2>/dev/null || true
+              wait "$app_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 90); do
+            if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              echo "Portable RECE exited before health check." >&2
+              cat "$stdout_path" >&2 || true
+              cat "$stderr_path" >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null
+          RECE_URL="http://127.0.0.1:${port}/" node automation/run_rece_packaged_runtime_cdp.mjs
+          RECE_URL="http://127.0.0.1:${port}/" node automation/run_rece_solver_modes_cdp.mjs
+          BASH
 
       - name: Debian package install smoke test
+        env:
+          CHROME_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+          RECE_CDP_COMMAND_TIMEOUT_MS: 60000
         run: |
           sudo apt-get install -y ./dist/linux/rece_0.1.0+linux1_amd64.deb
+          trap 'sudo apt-get remove -y rece || true' EXIT
           rece --print-runtime
           test -x /opt/rece/RECE
           test -f /usr/share/applications/rece.desktop
           test -f /usr/share/icons/hicolor/256x256/apps/rece.png
+          mkdir -p logs
+          xvfb-run -a bash <<'BASH'
+          set -euo pipefail
+          port=8797
+          stdout_path="logs/deb_rece_stdout.log"
+          stderr_path="logs/deb_rece_stderr.log"
+          rece --port "$port" --debug >"$stdout_path" 2>"$stderr_path" &
+          app_pid=$!
+          cleanup() {
+            if kill -0 "$app_pid" 2>/dev/null; then
+              kill "$app_pid" 2>/dev/null || true
+              wait "$app_pid" 2>/dev/null || true
+            fi
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 90); do
+            if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              echo "Installed RECE exited before health check." >&2
+              cat "$stdout_path" >&2 || true
+              cat "$stderr_path" >&2 || true
+              exit 1
+            fi
+            sleep 1
+          done
+          curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null
+          RECE_URL="http://127.0.0.1:${port}/" node automation/run_rece_packaged_runtime_cdp.mjs
+          RECE_URL="http://127.0.0.1:${port}/" node automation/run_rece_solver_modes_cdp.mjs
+          BASH
           sudo apt-get remove -y rece
+          trap - EXIT
 
       - name: Upload Linux package artifacts
         uses: actions/upload-artifact@v4
